@@ -1,0 +1,8 @@
+#!/bin/sh
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "gitleaks が無いため commit を止めました。brew install gitleaks で入れてください。" >&2
+  exit 1
+fi
+# color.ui=always だと gitleaks は diff を読めず、何も検査せずに成功で終わる
+export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=color.ui GIT_CONFIG_VALUE_0=never GIT_CONFIG_KEY_1=color.diff GIT_CONFIG_VALUE_1=never
+exec gitleaks git --staged --redact --no-banner --verbose --config "$(git rev-parse --show-toplevel)/.gitleaks.toml"
