@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>管理画面 - Nakamaba</title>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&family=Noto+Sans+JP:wght@300..700&display=swap"
+    />
+    <link rel="stylesheet" href="/admin.css" />
+    <script src="/admin.js" defer></script>
+  </head>
+  <body>
+    <nav class="nav">
+      <span class="brand">Nakamaba</span>
+      <span class="nav-right" id="nav-right">
+        <span class="who" id="who"></span>
+      </span>
+    </nav>
+
+    <main class="main">
+      <div class="status" id="status" role="status" aria-live="polite" hidden></div>
+
+      <section class="panel" aria-labelledby="publish-heading">
+        <h1 id="publish-heading">ページを公開</h1>
+        <p class="hint">
+          zip の直下に <code>index.html</code> か <code>index.md</code> を置いてください。同じ名前で公開すると上書きします。
+        </p>
+        <form id="publish-form" class="form">
+          <label>
+            <span>ページ名（英小文字・数字・ハイフン）</span>
+            <input id="page-name" name="name" required maxlength="63" pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?" autocomplete="off" spellcheck="false" />
+          </label>
+          <label>
+            <span>zip ファイル</span>
+            <input id="page-zip" name="zip" type="file" accept=".zip,application/zip" required />
+          </label>
+          <button class="primary" type="submit" id="publish-button">公開する</button>
+        </form>
+      </section>
+
+      <section class="panel" aria-labelledby="pages-heading">
+        <h2 id="pages-heading">公開中のページ</h2>
+        <div id="pages" class="rows"></div>
+      </section>
+
+      <section class="panel" id="users-panel" aria-labelledby="users-heading" hidden>
+        <h2 id="users-heading">ユーザー</h2>
+        <form id="user-form" class="form inline">
+          <label>
+            <span>ユーザー名</span>
+            <input id="user-name" name="name" required maxlength="63" pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?" autocomplete="off" spellcheck="false" />
+          </label>
+          <button class="primary" type="submit">追加する</button>
+        </form>
+        <div id="users" class="rows"></div>
+      </section>
+    </main>
+  </body>
+</html>
