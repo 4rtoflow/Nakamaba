@@ -28,7 +28,7 @@ const deps = createAwsDeps({
   publicBaseUrl: '',
   uploadOrigin: '',
   parameterPrefix: process.env.PARAMETER_PREFIX ?? '/nakamaba',
-  forcePathStyle: false,
+  forcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true',
 });
 
 const { password } = await bootstrapAdmin(deps, name);

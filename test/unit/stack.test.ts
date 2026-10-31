@@ -107,6 +107,19 @@ describe('Lambda', () => {
     expect(url?.Properties.Cors).toBeUndefined();
   });
 
+  it('関数 URL からだけ呼べるよう、2 つの権限を与える', () => {
+    template.hasResourceProperties('AWS::Lambda::Permission', {
+      Action: 'lambda:InvokeFunctionUrl',
+      Principal: '*',
+      FunctionUrlAuthType: 'NONE',
+    });
+    template.hasResourceProperties('AWS::Lambda::Permission', {
+      Action: 'lambda:InvokeFunction',
+      Principal: '*',
+      InvokedViaFunctionUrl: true,
+    });
+  });
+
   it('Node.js 24 で動き、公開の処理に足りる時間を持つ', () => {
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'nodejs24.x',

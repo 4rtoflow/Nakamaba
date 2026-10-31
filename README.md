@@ -68,7 +68,7 @@ npx cdk deploy
 デプロイの出力を使って、最初の Admin を作ります。パスワードは一度だけ表示されますが、ログイン後は管理画面でも確認できます。
 
 ```bash
-USERS_TABLE=<UsersTableName> PAGES_TABLE=<PagesTableName> SITE_BUCKET=<SiteBucketName> \
+AWS_REGION=ap-northeast-1 USERS_TABLE=<UsersTableName> PAGES_TABLE=<PagesTableName> SITE_BUCKET=<SiteBucketName> \
   npm run bootstrap-admin -- <ユーザー名>
 ```
 
