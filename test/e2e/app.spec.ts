@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { type BrowserContext, expect, type Page, test } from '@playwright/test';
 import { addUser, devState, fillLogin, openAdmin, publishZip } from './helpers.ts';
 
@@ -165,6 +166,44 @@ test('公開側のトップにカードの一覧が出る', async ({ browser }) 
     .toBeGreaterThan(0);
   await card.click();
   await expect(page.locator('#h')).toHaveText('猫');
+  await context.close();
+});
+
+test('公開側と管理画面でアイコンを取得できる', async ({ browser }) => {
+  const { adminOrigin, publicOrigin } = devState();
+  const context = await browser.newContext();
+
+  const ico = await context.request.get(`${publicOrigin}/favicon.ico`);
+  expect(ico.status()).toBe(200);
+  expect(ico.headers()['content-type']).toBe('image/x-icon');
+  expect((await ico.body()).equals(readFileSync('src/app/admin-assets/favicon.ico'))).toBe(true);
+  const touch = await context.request.get(`${publicOrigin}/apple-touch-icon.png`);
+  expect(touch.headers()['content-type']).toBe('image/png');
+  expect(
+    (await touch.body()).equals(readFileSync('src/app/admin-assets/apple-touch-icon.png')),
+  ).toBe(true);
+
+  const loadedWidth = (page: Page) =>
+    page.evaluate(
+      (href) =>
+        new Promise<number>((resolve) => {
+          const image = new Image();
+          image.onload = () => resolve(image.naturalWidth);
+          image.onerror = () => resolve(0);
+          image.src = href;
+        }),
+      '/favicon.svg',
+    );
+
+  const publicPage = await context.newPage();
+  await publicPage.goto(publicOrigin);
+  expect(await loadedWidth(publicPage)).toBeGreaterThan(0);
+
+  // 管理画面の CSP に止められない
+  const adminScreen = await context.newPage();
+  await adminScreen.goto(adminOrigin);
+  await expect(adminScreen.locator('link[rel="icon"]')).toHaveAttribute('href', '/favicon.svg');
+  expect(await loadedWidth(adminScreen)).toBeGreaterThan(0);
   await context.close();
 });
 

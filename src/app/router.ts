@@ -1,4 +1,4 @@
-import { ADMIN_CSS, ADMIN_HTML, ADMIN_JS, adminCsp } from './admin-page.ts';
+import { ADMIN_CSS, ADMIN_HTML, ADMIN_JS, adminCsp, FAVICON_SVG } from './admin-page.ts';
 import { assertAdmin, authenticate } from './auth.ts';
 import type { Deps, User } from './deps.ts';
 import {
@@ -146,6 +146,9 @@ async function route(deps: Deps, request: AppRequest): Promise<AppResponse> {
     }
     if (request.path === '/admin.css') {
       return respond(200, ADMIN_CSS, 'text/css; charset=utf-8');
+    }
+    if (request.path === '/favicon.svg') {
+      return respond(200, FAVICON_SVG, 'image/svg+xml');
     }
   }
 

@@ -74,6 +74,9 @@ describe('デプロイされるバンドル', () => {
     expect(readdirSync(join(assetDir, 'admin-assets')).sort()).toEqual([
       'admin.css',
       'admin.js',
+      'apple-touch-icon.png',
+      'favicon.ico',
+      'favicon.svg',
       'index.html',
     ]);
   });

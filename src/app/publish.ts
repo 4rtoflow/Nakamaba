@@ -1,3 +1,4 @@
+import { SITE_ICONS } from './admin-page.ts';
 import type { Deps, Page, PresignedUpload, User } from './deps.ts';
 import { HttpError } from './http.ts';
 import { assertValidName } from './names.ts';
@@ -50,8 +51,10 @@ export async function refreshTopPage(deps: Pick<Deps, 'pages' | 'siteFiles'>): P
   await deps.siteFiles.put('index.html', renderTopPage(pages), HTML);
 }
 
+// 公開と削除のたびに置き直すので、アプリの更新は次の公開で公開側にも反映される
 export async function writeStaticPages(deps: Pick<Deps, 'pages' | 'siteFiles'>): Promise<void> {
   await deps.siteFiles.put('404.html', renderNotFoundPage(), HTML);
+  for (const icon of SITE_ICONS) await deps.siteFiles.put(icon.key, icon.body, icon.contentType);
   await refreshTopPage(deps);
 }
 
@@ -107,7 +110,7 @@ export async function publishPage(
     throw error;
   }
 
-  await refreshTopPage(deps);
+  await writeStaticPages(deps);
   await deps.cdn.invalidate([`/${pageName}/*`, '/index.html', '/']);
   await deps.uploads.delete(key);
 
@@ -132,6 +135,6 @@ export async function deletePage(deps: Deps, user: User, pageName: string): Prom
   const prefix = `${pageName}/`;
   await deps.siteFiles.delete(await deps.siteFiles.list(prefix));
   await deps.pages.delete(pageName);
-  await refreshTopPage(deps);
+  await writeStaticPages(deps);
   await deps.cdn.invalidate([`/${pageName}/*`, '/index.html', '/']);
 }

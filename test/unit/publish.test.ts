@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { User } from '../../src/app/deps.ts';
 import { HttpError } from '../../src/app/http.ts';
@@ -35,11 +36,40 @@ async function errorOf(promise: Promise<unknown>): Promise<HttpError> {
   return error as HttpError;
 }
 
+function expectSiteFiles() {
+  expect(world.siteFiles.get('404.html')?.contentType).toContain('text/html');
+  // バイナリは全体を比べる（文字列として読むと壊れるが、先頭だけでは気付けない）
+  for (const [key, contentType] of [
+    ['favicon.svg', 'image/svg+xml'],
+    ['favicon.ico', 'image/x-icon'],
+    ['apple-touch-icon.png', 'image/png'],
+  ] as const) {
+    const file = world.siteFiles.get(key);
+    const source = readFileSync(new URL(`../../src/app/admin-assets/${key}`, import.meta.url));
+    expect(file?.contentType).toBe(contentType);
+    expect(file?.body.equals(source)).toBe(true);
+  }
+}
+
 beforeEach(() => {
   world = createFakeWorld();
   alice = world.addUser('alice');
   bob = world.addUser('bob');
   admin = world.addUser('root', 'admin');
+});
+
+describe('公開側の共通ファイル', () => {
+  it('公開すると 404 とアイコンを置き直す', async () => {
+    await publishAs(alice, 'my-page');
+    expectSiteFiles();
+  });
+
+  it('削除しても 404 とアイコンを置き直す', async () => {
+    await publishAs(alice, 'my-page');
+    world.siteFiles.clear();
+    await deletePage(world.deps, alice, 'my-page');
+    expectSiteFiles();
+  });
 });
 
 describe('createUpload', () => {

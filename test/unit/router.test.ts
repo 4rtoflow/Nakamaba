@@ -97,7 +97,7 @@ describe('別オリジンからの送信の防止', () => {
 });
 
 describe('認証', () => {
-  it.each(['/', '/admin.js', '/admin.css'])(
+  it.each(['/', '/admin.js', '/admin.css', '/favicon.svg'])(
     '%s はログインフォームを出すため、認証情報なしで返す',
     async (path) => {
       const response = await send('GET', path, { as: null });
@@ -182,6 +182,7 @@ describe('応答のヘッダー', () => {
     expect((await send('GET', '/admin.js')).headers['Content-Type']).toContain('text/javascript');
     expect((await send('GET', '/admin.css')).headers['Content-Type']).toContain('text/css');
     expect((await send('GET', '/')).headers['Content-Type']).toContain('text/html');
+    expect((await send('GET', '/favicon.svg')).headers['Content-Type']).toBe('image/svg+xml');
   });
 
   it('管理画面の HTML にインラインのスクリプトを書かない', async () => {

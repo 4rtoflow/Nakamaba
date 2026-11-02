@@ -66,6 +66,16 @@ describe('renderTopPage', () => {
     expect(html).toContain('0 ページ');
   });
 
+  it.each([
+    ['トップ', () => renderTopPage([])],
+    ['404', () => renderNotFoundPage()],
+  ])('%s はサイトのルートのアイコンを指す', (_label, render) => {
+    const html = render();
+    expect(html).toContain('<link rel="icon" href="/favicon.svg" type="image/svg+xml">');
+    expect(html).toContain('<link rel="icon" href="/favicon.ico" sizes="32x32">');
+    expect(html).toContain('<link rel="apple-touch-icon" href="/apple-touch-icon.png">');
+  });
+
   it('外部スクリプトを読み込まない', () => {
     expect(renderTopPage([page()])).not.toContain('<script');
   });
