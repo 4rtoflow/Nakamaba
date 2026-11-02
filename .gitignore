@@ -10,3 +10,4 @@ cdk.out/
 !.env.example
 test-results/
 playwright-report/
+examples/*.zip
