@@ -22,7 +22,6 @@ a { color: inherit; text-decoration: none; }
 .hero { width: 100%; max-width: 1120px; margin: 0 auto; padding: 80px 24px 48px; }
 .hero h1 { margin: 0; font-size: clamp(36px, 7vw, 64px); line-height: 1.1; font-weight: 650; }
 .hero h1 span { color: var(--accent); }
-.hero p { margin: 16px 0 0; max-width: 560px; color: var(--muted); font-size: 18px; font-weight: 300; line-height: 1.6; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; width: 100%; max-width: 1120px; margin: 0 auto; padding: 0 24px 80px; }
 .card { display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--hairline); border-radius: 24px; background: var(--canvas); transition: background-color .15s; }
 .card:hover, .card:focus-visible { background: var(--soft); }
@@ -81,7 +80,7 @@ ${FONTS}
 <body>
 <nav class="nav"><a class="brand" href="/">Nakamaba</a>${headerRight}</nav>
 ${main}
-<footer><div><strong>Nakamaba</strong>友だち同士で、作ったページを見せ合う場所。</div></footer>
+<footer><div><strong>Nakamaba</strong>HTML と Markdown の静的ホスティング。</div></footer>
 </body>
 </html>
 `;
@@ -93,7 +92,7 @@ export function renderTopPage(pages: Page[]): string {
     sorted.length > 0
       ? `<section class="grid">\n${sorted.map(renderCard).join('\n')}\n</section>`
       : '<section class="empty"><p>まだページがありません。</p></section>';
-  const main = `<header class="hero"><h1>作ったものを、<br>見せ合おう<span>。</span></h1><p>友だちが公開したページの一覧です。</p></header>
+  const main = `<header class="hero"><h1>公開中のページ<span>。</span></h1></header>
 ${list}`;
   return layout('Nakamaba', main, `<span class="count">${sorted.length} ページ</span>`);
 }
