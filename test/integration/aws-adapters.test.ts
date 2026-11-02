@@ -189,6 +189,16 @@ describe('SiteFiles（S3）', () => {
     await expect(files.list('ab/')).resolves.toEqual(['ab/index.html']);
   });
 
+  it('前方一致するファイルの合計サイズを返す', async () => {
+    const files = createSiteFiles(s3, config.siteBucket);
+    await files.put('size/index.html', Buffer.alloc(10), 'text/html');
+    await files.put('size/a/b.png', Buffer.alloc(32), 'image/png');
+    await files.put('size2/index.html', Buffer.alloc(100), 'text/html');
+    await expect(files.totalBytes('size/')).resolves.toBe(42);
+    await expect(files.totalBytes('no-such-page/')).resolves.toBe(0);
+    await files.delete(['size/index.html', 'size/a/b.png', 'size2/index.html']);
+  });
+
   it('空の配列を渡しても削除の API を呼ばない', async () => {
     const files = createSiteFiles(s3, config.siteBucket);
     await expect(files.delete([])).resolves.toBeUndefined();

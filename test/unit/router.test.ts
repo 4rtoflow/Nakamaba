@@ -222,6 +222,23 @@ describe('ページの API', () => {
     await expect(canModify('bob')).resolves.toBe(false);
   });
 
+  it('一覧は、ログインした本人の使用量と上限を返す', async () => {
+    await publish('alice', 'p');
+    const size = world.siteFiles.get('p/index.html')?.body.length;
+    const usage = async (as: string) => bodyOf(await send('GET', '/api/pages', { as })).usage;
+    await expect(usage('alice')).resolves.toEqual({ usedBytes: size, maxBytes: 1024 ** 3 });
+    await expect(usage('bob')).resolves.toEqual({ usedBytes: 0, maxBytes: 1024 ** 3 });
+    await expect(usage('root')).resolves.toEqual({ usedBytes: 0, maxBytes: 1024 ** 3 });
+  });
+
+  it('上限を超える公開は 413 と理由を返す', async () => {
+    world.deps.limits = { ...world.deps.limits, maxBytesPerUser: 1 };
+    const response = await publish('alice', 'p');
+    expect(response.status).toBe(413);
+    expect(bodyOf(response).error).toBe('quota_exceeded');
+    expect(bodyOf(response).message).toContain('1 人あたりの上限');
+  });
+
   it('一覧は新しい順に返す', async () => {
     world.deps.now = () => new Date('2026-01-01T00:00:00.000Z');
     await publish('alice', 'old');

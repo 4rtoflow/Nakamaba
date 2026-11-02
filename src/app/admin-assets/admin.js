@@ -39,6 +39,7 @@ function showLogin() {
   $('app').hidden = true;
   $('pages').replaceChildren();
   $('users').replaceChildren();
+  $('usage').textContent = '';
   $('login-panel').hidden = false;
 }
 
@@ -149,9 +150,22 @@ function renderPages(pages) {
   }
 }
 
+function formatBytes(bytes) {
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${Number(value.toFixed(1))} ${units[unit]}`;
+}
+
 async function refreshPages() {
-  const { pages } = await api('GET', '/api/pages');
+  const { pages, usage } = await api('GET', '/api/pages');
   renderPages(pages);
+  $('usage').textContent =
+    `使用量: ${formatBytes(usage.usedBytes)} / ${formatBytes(usage.maxBytes)}`;
 }
 
 function renderUsers(users, me) {

@@ -207,6 +207,18 @@ export function createSiteFiles(s3: S3Client, bucket: string): SiteFiles {
       } while (token);
       return keys;
     },
+    async totalBytes(prefix) {
+      let total = 0;
+      let token: string | undefined;
+      do {
+        const result = await s3.send(
+          new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }),
+        );
+        for (const object of result.Contents ?? []) total += object.Size ?? 0;
+        token = result.NextContinuationToken;
+      } while (token);
+      return total;
+    },
     async delete(keys) {
       for (let start = 0; start < keys.length; start += 1000) {
         const batch = keys.slice(start, start + 1000);

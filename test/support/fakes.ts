@@ -87,6 +87,10 @@ export function createFakeWorld(overrides: Partial<Deps> = {}): FakeWorld {
         siteFiles.set(key, { body: Buffer.from(body), contentType });
       },
       list: async (prefix) => [...siteFiles.keys()].filter((key) => key.startsWith(prefix)),
+      totalBytes: async (prefix) =>
+        [...siteFiles.entries()]
+          .filter(([key]) => key.startsWith(prefix))
+          .reduce((sum, [, file]) => sum + file.body.length, 0),
       delete: async (keys) => {
         for (const key of keys) siteFiles.delete(key);
       },
