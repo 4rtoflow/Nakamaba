@@ -2,6 +2,46 @@
 const $ = (id) => document.getElementById(id);
 const statusBox = $('status');
 
+// 認証情報は sessionStorage に置く。タブを閉じると消え、公開側のオリジンからは読めない。
+const AUTHORIZATION_KEY = 'nakamaba.authorization';
+let authorization = null;
+let currentUser = null;
+
+function readSavedAuthorization() {
+  try {
+    return sessionStorage.getItem(AUTHORIZATION_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveAuthorization(value) {
+  try {
+    if (value) sessionStorage.setItem(AUTHORIZATION_KEY, value);
+    else sessionStorage.removeItem(AUTHORIZATION_KEY);
+  } catch {
+    // 保存できなくても、このページを開いている間はログインしたまま使える
+  }
+}
+
+function basicAuthorization(name, password) {
+  const bytes = new TextEncoder().encode(`${name}:${password}`);
+  return `Basic ${btoa(String.fromCharCode(...bytes))}`;
+}
+
+function showLogin() {
+  authorization = null;
+  currentUser = null;
+  saveAuthorization(null);
+  $('who').textContent = '';
+  $('public-link').hidden = true;
+  $('logout').hidden = true;
+  $('app').hidden = true;
+  $('pages').replaceChildren();
+  $('users').replaceChildren();
+  $('login-panel').hidden = false;
+}
+
 function showStatus(message, isError = false) {
   statusBox.textContent = message;
   statusBox.classList.toggle('error', isError);
@@ -14,12 +54,18 @@ function clearStatus() {
 }
 
 async function api(method, path, body) {
+  const headers = authorization ? { Authorization: authorization } : {};
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
   const response = await fetch(path, {
     method,
-    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await response.json().catch(() => ({}));
+  if (response.status === 401) {
+    showLogin();
+    throw Object.assign(new Error('もう一度ログインしてください。'), { status: 401 });
+  }
   if (!response.ok) throw new Error(data.message || `エラーが起きました（${response.status}）`);
   return data;
 }
@@ -223,47 +269,72 @@ $('publish-form').addEventListener('submit', async (event) => {
   }
 });
 
-async function init() {
-  const me = await api('GET', '/api/me');
-  $('who').textContent = `${me.name}${me.role === 'admin' ? '（Admin）' : ''}`;
-  $('nav-right').append(
-    element('a', {
-      className: 'public-link',
-      text: '公開ページ ↗',
-      attrs: {
-        id: 'public-link',
-        href: me.publicBaseUrl,
-        target: '_blank',
-        rel: 'noopener noreferrer',
-      },
-    }),
-  );
-  await refreshPages();
-  if (me.role === 'admin') {
-    $('users-panel').hidden = false;
-    await refreshUsers(me);
-    $('user-form').addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const form = event.currentTarget;
-      const name = $('user-name').value;
-      try {
-        const { password } = await api('PUT', `/api/users/${encodeURIComponent(name)}`);
-        form.reset();
-        await refreshUsers(me);
-        const row = document.querySelector(`[data-user="${CSS.escape(name)}"]`);
-        row?.append(
-          element('div', {
-            className: 'password',
-            text: password,
-            attrs: { 'aria-label': `${name} のパスワード` },
-          }),
-        );
-        showStatus(`「${name}」を追加しました。パスワードを本人へ渡してください。`);
-      } catch (error) {
-        showStatus(error.message, true);
-      }
-    });
+$('user-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const name = $('user-name').value;
+  try {
+    const { password } = await api('PUT', `/api/users/${encodeURIComponent(name)}`);
+    form.reset();
+    await refreshUsers(currentUser);
+    const row = document.querySelector(`[data-user="${CSS.escape(name)}"]`);
+    row?.append(
+      element('div', {
+        className: 'password',
+        text: password,
+        attrs: { 'aria-label': `${name} のパスワード` },
+      }),
+    );
+    showStatus(`「${name}」を追加しました。パスワードを本人へ渡してください。`);
+  } catch (error) {
+    showStatus(error.message, true);
   }
+});
+
+async function enter() {
+  currentUser = await api('GET', '/api/me');
+  saveAuthorization(authorization);
+  const isAdmin = currentUser.role === 'admin';
+  $('who').textContent = `${currentUser.name}${isAdmin ? '（Admin）' : ''}`;
+  $('public-link').href = currentUser.publicBaseUrl;
+  $('public-link').hidden = false;
+  $('logout').hidden = false;
+  $('login-panel').hidden = true;
+  $('users-panel').hidden = !isAdmin;
+  $('app').hidden = false;
+  await refreshPages();
+  if (isAdmin) await refreshUsers(currentUser);
 }
 
-init().catch((error) => showStatus(error.message, true));
+$('login-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = $('login-button');
+  button.disabled = true;
+  clearStatus();
+  authorization = basicAuthorization($('login-name').value, $('login-password').value);
+  try {
+    await enter();
+    form.reset();
+  } catch (error) {
+    $('login-password').value = '';
+    showStatus(error.status === 401 ? 'ユーザー名かパスワードが違います。' : error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$('logout').addEventListener('click', () => {
+  clearStatus();
+  showLogin();
+});
+
+authorization = readSavedAuthorization();
+if (authorization) {
+  enter().catch((error) => {
+    if ($('app').hidden) showLogin();
+    showStatus(error.message, true);
+  });
+} else {
+  showLogin();
+}

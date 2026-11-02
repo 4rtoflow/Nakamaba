@@ -134,12 +134,10 @@ function methodNotAllowed(allow: string): HttpError {
 async function route(deps: Deps, request: AppRequest): Promise<AppResponse> {
   if (!['GET', 'PUT', 'DELETE'].includes(request.method)) throw methodNotAllowed(ALLOWED_METHODS);
 
-  const user = await authenticate(request.headers.authorization, deps.users);
-
+  // 画面のファイルに秘密は無い。ログインフォームを出すために、認証なしで返す
   if (request.method === 'GET') {
-    const html = 'text/html; charset=utf-8';
     if (request.path === '/') {
-      return respond(200, ADMIN_HTML, html, {
+      return respond(200, ADMIN_HTML, 'text/html; charset=utf-8', {
         'Content-Security-Policy': adminCsp(deps.uploadOrigin),
       });
     }
@@ -149,9 +147,12 @@ async function route(deps: Deps, request: AppRequest): Promise<AppResponse> {
     if (request.path === '/admin.css') {
       return respond(200, ADMIN_CSS, 'text/css; charset=utf-8');
     }
-    if (request.path === '/api/me') {
-      return json(200, { ...toPublicUser(user), publicBaseUrl: deps.publicBaseUrl });
-    }
+  }
+
+  const user = await authenticate(request.headers.authorization, deps.users);
+
+  if (request.method === 'GET' && request.path === '/api/me') {
+    return json(200, { ...toPublicUser(user), publicBaseUrl: deps.publicBaseUrl });
   }
 
   const [api, resource, ...rest] = segmentsOf(request.path);

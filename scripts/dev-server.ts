@@ -61,7 +61,12 @@ const adminServer = createServer(async (request: IncomingMessage, response: Serv
     body: await readBody(request),
   };
   const result = await handleRequest(deps, appRequest);
-  response.writeHead(result.status, result.headers);
+  // 本番の関数 URL と同じく、WWW-Authenticate を別の名前に変える（ブラウザのダイアログを出さない）
+  const { 'WWW-Authenticate': challenge, ...headers } = result.headers;
+  response.writeHead(
+    result.status,
+    challenge ? { ...headers, 'x-amzn-Remapped-www-authenticate': challenge } : headers,
+  );
   response.end(result.body);
 });
 

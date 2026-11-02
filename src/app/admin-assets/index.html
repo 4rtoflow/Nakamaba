@@ -16,12 +16,30 @@
       <span class="brand">Nakamaba</span>
       <span class="nav-right" id="nav-right">
         <span class="who" id="who"></span>
+        <a class="public-link" id="public-link" href="/" target="_blank" rel="noopener noreferrer" hidden>公開ページ ↗</a>
+        <button id="logout" type="button" hidden>ログアウト</button>
       </span>
     </nav>
 
     <main class="main">
       <div class="status" id="status" role="status" aria-live="polite" hidden></div>
 
+      <section class="panel login" id="login-panel" aria-labelledby="login-heading" hidden>
+        <h1 id="login-heading">ログイン</h1>
+        <form id="login-form" class="form">
+          <label>
+            <span>ユーザー名</span>
+            <input id="login-name" name="username" required autocomplete="username" autocapitalize="none" spellcheck="false" />
+          </label>
+          <label>
+            <span>パスワード</span>
+            <input id="login-password" name="password" type="password" required autocomplete="current-password" />
+          </label>
+          <button class="primary" type="submit" id="login-button">ログイン</button>
+        </form>
+      </section>
+
+      <div class="app" id="app" hidden>
       <section class="panel" aria-labelledby="publish-heading">
         <h1 id="publish-heading">ページを公開</h1>
         <p class="hint">
@@ -56,6 +74,7 @@
         </form>
         <div id="users" class="rows"></div>
       </section>
+      </div>
     </main>
   </body>
 </html>

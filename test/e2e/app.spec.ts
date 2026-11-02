@@ -1,5 +1,5 @@
 import { type BrowserContext, expect, type Page, test } from '@playwright/test';
-import { addUser, devState, loginContext, openAdmin, publishZip } from './helpers.ts';
+import { addUser, devState, fillLogin, openAdmin, publishZip } from './helpers.ts';
 
 const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
@@ -10,28 +10,91 @@ test.describe.configure({ mode: 'serial' });
 
 let adminContext: BrowserContext;
 let adminPage: Page;
-let aliceContext: BrowserContext;
 let alicePage: Page;
-let bobContext: BrowserContext;
 let bobPage: Page;
 let bobPassword: string;
 
+const savedAuthorization = (page: Page) =>
+  page.evaluate(() => sessionStorage.getItem('nakamaba.authorization'));
+
 test.beforeAll(async ({ browser }) => {
   const state = devState();
-  adminContext = await loginContext(browser, state.adminName, state.password);
-  adminPage = await openAdmin(adminContext);
+  adminPage = await openAdmin(browser, state.adminName, state.password);
+  adminContext = adminPage.context();
 });
 
 test.afterAll(async () => {
-  await Promise.all([adminContext?.close(), aliceContext?.close(), bobContext?.close()]);
+  await Promise.all([
+    adminContext?.close(),
+    alicePage?.context().close(),
+    bobPage?.context().close(),
+  ]);
 });
 
-test('ログインしていなければ管理画面は 401 を返す', async ({ browser }) => {
+test('ログインしていなければフォームだけが出て、API は 401 を返す', async ({ browser }) => {
+  const { adminOrigin } = devState();
   const context = await browser.newContext();
-  const response = await context.request.get(devState().adminOrigin, { maxRedirects: 0 });
+  const page = await context.newPage();
+  await page.goto(adminOrigin);
+  await expect(page.locator('#login-panel')).toBeVisible();
+  await expect(page.locator('#app')).toBeHidden();
+  await expect(page.locator('#logout')).toBeHidden();
+
+  // 本番の関数 URL と同じく、ブラウザのダイアログを出すヘッダーは付かない
+  const response = await context.request.get(`${adminOrigin}/api/me`);
   expect(response.status()).toBe(401);
-  expect(response.headers()['www-authenticate']).toContain('Basic');
+  expect(response.headers()['www-authenticate']).toBeUndefined();
+  expect(response.headers()['x-amzn-remapped-www-authenticate']).toContain('Basic');
   await context.close();
+});
+
+test('パスワードが違えば入れず、正しければ入れて、再読み込みしてもログインしたままになる', async ({
+  browser,
+}) => {
+  const { adminOrigin, adminName, password } = devState();
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(adminOrigin);
+
+  await fillLogin(page, adminName, 'wrong-password');
+  await expect(page.locator('#status')).toHaveText('ユーザー名かパスワードが違います。');
+  await expect(page.locator('#login-panel')).toBeVisible();
+  await expect(page.locator('#login-password')).toHaveValue('');
+  expect(await savedAuthorization(page)).toBeNull();
+
+  await fillLogin(page, adminName, password);
+  await expect(page.locator('#who')).toHaveText(`${adminName}（Admin）`);
+  await expect(page.locator('#login-panel')).toBeHidden();
+  await expect(page.locator('#app')).toBeVisible();
+  await expect(page.locator('#status')).toBeHidden();
+
+  await page.reload();
+  await expect(page.locator('#who')).toHaveText(`${adminName}（Admin）`);
+  await expect(page.locator('#login-panel')).toBeHidden();
+  await context.close();
+});
+
+test('ログアウトすると認証情報と表示が消え、再読み込みしても入れない', async ({ browser }) => {
+  const { adminName, password } = devState();
+  const page = await openAdmin(browser, adminName, password);
+  await page.locator('[data-user]').first().waitFor();
+
+  await page.locator('#logout').click();
+  await expect(page.locator('#login-panel')).toBeVisible();
+  await expect(page.locator('#app')).toBeHidden();
+  await expect(page.locator('#who')).toBeEmpty();
+  await expect(page.locator('[data-user]')).toHaveCount(0);
+  expect(await savedAuthorization(page)).toBeNull();
+
+  await page.reload();
+  await expect(page.locator('#login-panel')).toBeVisible();
+  await expect(page.locator('#app')).toBeHidden();
+
+  // 同じ画面から、別のユーザーとして入り直せる
+  await fillLogin(page, adminName, password);
+  await expect(page.locator('#who')).not.toBeEmpty();
+  await expect(page.locator('#users-panel')).toBeVisible();
+  await page.context().close();
 });
 
 test('Admin はユーザーを追加でき、後からパスワードを確認できる', async ({ browser }) => {
@@ -46,10 +109,8 @@ test('Admin はユーザーを追加でき、後からパスワードを確認�
   await row.getByRole('button', { name: 'パスワードを表示' }).click();
   await expect(row.locator('.password')).toHaveText(alicePassword);
 
-  aliceContext = await loginContext(browser, 'alice', alicePassword);
-  alicePage = await openAdmin(aliceContext);
-  bobContext = await loginContext(browser, 'bob', bobPassword);
-  bobPage = await openAdmin(bobContext);
+  alicePage = await openAdmin(browser, 'alice', alicePassword);
+  bobPage = await openAdmin(browser, 'bob', bobPassword);
 });
 
 test('メンバーにはユーザーの管理が出ない', async () => {
@@ -165,14 +226,20 @@ test('タイトルに HTML を入れても、管理画面と一覧で実行さ�
 test('公開ページの JS から、管理 API を操作できない', async () => {
   const { adminOrigin, publicOrigin } = devState();
 
-  // 友人の公開ページを、ログイン済みの Admin が開いた状況を作る
+  // 友人の公開ページを、ログイン済みの Admin が同じブラウザの別のタブで開いた状況を作る
   await publishZip(alicePage, 'attacker', [
     { name: 'index.html', data: '<!doctype html><title>罠</title><h1>罠</h1>' },
   ]);
   await expect(alicePage.locator('#status')).toContainText('公開しました');
 
   const victim = await adminContext.newPage();
+
+  // ログイン中でも、ブラウザは認証情報を自動で付けない
+  const direct = await victim.goto(`${adminOrigin}/api/me`);
+  expect(direct?.status()).toBe(401);
+
   await victim.goto(`${publicOrigin}/attacker/`);
+  expect(await savedAuthorization(victim)).toBeNull();
 
   const results = await victim.evaluate(async (admin) => {
     const attempt = async (path: string, init: RequestInit) => {
@@ -268,6 +335,13 @@ test('再発行すると古いパスワードでは入れない', async ({ brows
   });
   expect(allowed.status()).toBe(200);
   await old.close();
+
+  // 古いパスワードで開いたままの画面は、再読み込みでログインに戻る
+  await bobPage.reload();
+  await expect(bobPage.locator('#login-panel')).toBeVisible();
+  await expect(bobPage.locator('#status')).toHaveText('もう一度ログインしてください。');
+  await expect(bobPage.locator('#app')).toBeHidden();
+  expect(await savedAuthorization(bobPage)).toBeNull();
 });
 
 test('本人が削除すると、公開側からも消える', async () => {

@@ -20,6 +20,8 @@ export function parseBasicAuth(header: string | undefined): BasicCredentials | n
 // ユーザーが居ないときも同じ比較を通し、名前の有無で処理が分からないようにする
 const NO_USER_HASH = hashPassword('');
 
+// 関数 URL はこのヘッダーを x-amzn-Remapped-www-authenticate に変えるので、ブラウザのダイアログは出ない。
+// 管理画面はログインフォームから Authorization を付けて送る。
 function unauthorized(): HttpError {
   return new HttpError(401, 'unauthorized', 'ログインが必要です。', {
     'WWW-Authenticate': 'Basic realm="Nakamaba", charset="UTF-8"',

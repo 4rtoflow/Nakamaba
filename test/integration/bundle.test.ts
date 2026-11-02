@@ -79,19 +79,20 @@ describe('デプロイされるバンドル', () => {
   });
 
   it('Lambda の形のイベントで認証を求める', async () => {
-    const response = await handler(event('GET', '/'));
+    const response = await handler(event('GET', '/api/me'));
     expect(response.statusCode).toBe(401);
     expect(response.headers['WWW-Authenticate']).toContain('Basic');
   });
 
-  it('管理画面を返し、AWS SDK も動く', async () => {
-    const authorization = basicHeader('root', adminPassword);
-    const page = await handler(event('GET', '/', authorization));
+  it('管理画面を認証なしで返し、API では AWS SDK も動く', async () => {
+    const page = await handler(event('GET', '/'));
     expect(page.statusCode).toBe(200);
-    expect(page.body).toContain('Nakamaba');
+    expect(page.body).toContain('login-form');
 
-    const script = await handler(event('GET', '/admin.js', authorization));
+    const script = await handler(event('GET', '/admin.js'));
     expect(script.body).toContain('textContent');
+
+    const authorization = basicHeader('root', adminPassword);
 
     const me = await handler(event('GET', '/api/me', authorization));
     expect(JSON.parse(me.body)).toMatchObject({ name: 'root', role: 'admin' });

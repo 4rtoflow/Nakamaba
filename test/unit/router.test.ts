@@ -97,10 +97,27 @@ describe('別オリジンからの送信の防止', () => {
 });
 
 describe('認証', () => {
+  it.each(['/', '/admin.js', '/admin.css'])(
+    '%s はログインフォームを出すため、認証情報なしで返す',
+    async (path) => {
+      const response = await send('GET', path, { as: null });
+      expect(response.status).toBe(200);
+      expect(response.headers['Cache-Control']).toBe('no-store');
+      expect(response.headers['X-Frame-Options']).toBe('DENY');
+      expect(response.body).not.toContain('alice');
+    },
+  );
+
   it.each([
-    ['GET', '/'],
-    ['GET', '/admin.js'],
-    ['GET', '/admin.css'],
+    ['PUT', '/'],
+    ['DELETE', '/'],
+    ['PUT', '/admin.js'],
+  ])('%s %s は GET ではないので、認証情報なしだと 401 にする', async (method, path) => {
+    const response = await send(method, path, { as: null });
+    expect(response.status).toBe(401);
+  });
+
+  it.each([
     ['GET', '/api/me'],
     ['GET', '/api/pages'],
     ['GET', '/api/users'],
