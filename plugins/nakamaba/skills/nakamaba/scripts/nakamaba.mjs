@@ -18,6 +18,7 @@ const MAX_UNZIPPED_BYTES = 200 * 1024 * 1024;
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 class CliError extends Error {}
+class ConnectionError extends CliError {}
 
 function credentialsPath() {
   return process.env.NAKAMABA_CREDENTIALS ?? join(homedir(), '.config', 'nakamaba', 'credentials');
@@ -76,8 +77,8 @@ async function request(credentials, method, path, body) {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (error) {
-    throw new CliError(
-      `管理画面に接続できません（${credentials.adminUrl}）: ${error.cause?.message ?? error.message}`,
+    throw new ConnectionError(
+      `管理画面に接続できません（${credentials.adminUrl}）: ${error.cause?.code || error.cause?.message || error.message}`,
     );
   }
   let data = {};
@@ -90,7 +91,18 @@ async function request(credentials, method, path, body) {
 }
 
 async function api(credentials, method, path, body) {
-  const response = await request(credentials, method, path, body);
+  let response;
+  try {
+    response = await request(credentials, method, path, body);
+  } catch (error) {
+    // 保存した URL が古い（開発サーバーのままなど）こともあるので、login のやり直しも示す
+    if (error instanceof ConnectionError) {
+      throw askLogin(
+        `${error.message}\nネットワークを確かめ、管理画面の URL が違うときは login をやり直します。`,
+      );
+    }
+    throw error;
+  }
   if (response.status === 401) throw askLogin('ユーザー名かパスワードが違います。');
   if (!response.ok) {
     throw new CliError(
@@ -265,7 +277,9 @@ async function publish(args) {
   for (const [field, value] of Object.entries(created.upload.fields)) form.append(field, value);
   form.append('file', new Blob([zip], { type: 'application/zip' }));
   const sent = await fetch(created.upload.url, { method: 'POST', body: form }).catch((error) => {
-    throw new CliError(`zip を送れませんでした: ${error.cause?.message ?? error.message}`);
+    throw new CliError(
+      `zip を送れませんでした: ${error.cause?.code || error.cause?.message || error.message}`,
+    );
   });
   if (!sent.ok) throw new CliError(`zip を送れませんでした（HTTP ${sent.status}）。`);
 

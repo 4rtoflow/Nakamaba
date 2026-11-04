@@ -254,6 +254,28 @@ describe('publish', () => {
     expect(result.stderr).toContain(`node "${SCRIPT}" login`);
   });
 
+  it('保存した URL につながらないと、login のやり直しも案内する', async () => {
+    const closed = createServer();
+    await new Promise<void>((resolve) => closed.listen(0, '127.0.0.1', resolve));
+    const { port } = closed.address() as AddressInfo;
+    await new Promise<void>((resolve) => closed.close(() => resolve()));
+    const credentials = join(workDir, 'credentials-closed');
+    await writeFile(
+      credentials,
+      JSON.stringify({ adminUrl: `http://127.0.0.1:${port}`, username: 'alice', password: 'x' }),
+    );
+    const dir = await makeSite({ 'index.md': '# x' });
+
+    const result = await run(['list'], credentials);
+    const published = await run(['publish', dir, '--name', 'skill-closed'], credentials);
+
+    for (const output of [result, published]) {
+      expect(output.code).toBe(1);
+      expect(output.stderr).toContain(`管理画面に接続できません（http://127.0.0.1:${port}）`);
+      expect(output.stderr).toContain(`node "${SCRIPT}" login`);
+    }
+  });
+
   it('パスワードが違うと、login のやり直しを案内する', async () => {
     const dir = await makeSite({ 'index.md': '# x' });
     const result = await run(
