@@ -1,14 +1,33 @@
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
   --ink: #141414;
+  --on-ink: #fff;
+  --ink-hover: #262626;
   --muted: #707070;
   --canvas: #fff;
   --soft: #f3f3f3;
   --field: #f0f0f0;
   --hairline: #e0e0e0;
   --accent: #c2410c;
+  --error-bg: #fff1ec;
+  --error-ink: #9a3412;
   font-family:
     Inter, "Noto Sans JP", -apple-system, "Hiragino Sans", "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #ededed;
+    --on-ink: #141414;
+    --ink-hover: #d4d4d4;
+    --muted: #9a9a9a;
+    --canvas: #121212;
+    --soft: #1f1f1f;
+    --field: #262626;
+    --hairline: #2e2e2e;
+    --accent: #fb923c;
+    --error-bg: #3a1d12;
+    --error-ink: #fdba74;
+  }
 }
 * {
   box-sizing: border-box;
@@ -166,10 +185,10 @@ button:hover {
 button.primary {
   border-color: var(--ink);
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 button.primary:hover {
-  background: #262626;
+  background: var(--ink-hover);
 }
 button.danger {
   color: var(--accent);
@@ -190,8 +209,8 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 .status.error {
-  background: #fff1ec;
-  color: #9a3412;
+  background: var(--error-bg);
+  color: var(--error-ink);
 }
 .rows {
   display: flex;
