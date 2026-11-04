@@ -17,6 +17,15 @@ AI エージェントにこのリポジトリを読ませて、聞いてくだ�
 
 > 自分の AWS アカウントへデプロイして
 
-> Nakamaba のプラグインを Claude Code に入れて
-
 公開リポジトリなので、clone したら `git config core.hooksPath .githooks` だけは実行してください。commit の前に、秘密の混入を gitleaks で検査します。
+
+## AI エージェントから公開する
+
+Claude Code にプラグインを入れると、「ページを作って Nakamaba に公開して」「さっきのページを更新して」のように頼めます。
+
+```sh
+claude plugin marketplace add 4rtoflow/Nakamaba
+claude plugin install nakamaba@nakamaba
+```
+
+初めて公開するときは、エージェントがログイン用のコマンドを示します。パスワードを会話に残さないよう、そのコマンドは別のターミナルで実行してください。
