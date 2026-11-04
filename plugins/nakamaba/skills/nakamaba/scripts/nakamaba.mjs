@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Nakamaba の API でフォルダを公開する。依存パッケージを持たない（プラグインはそのまま配られるため）。
 import { chmod, lstat, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { homedir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -112,8 +113,8 @@ async function api(credentials, method, path, body) {
   return response.data;
 }
 
-/** 公開するファイルを集める。. で始まるもの（.env・.git など）とシンボリックリンクは送らない */
-async function collectFiles(root) {
+/** 公開するファイルを並べる。. で始まるもの（.env・.git など）とシンボリックリンクは送らない */
+async function listFiles(root) {
   const files = [];
   const skipped = [];
   let totalBytes = 0;
@@ -140,13 +141,19 @@ async function collectFiles(root) {
             `ファイルの合計が上限（${formatBytes(MAX_UNZIPPED_BYTES)}）を超えます。`,
           );
         }
-        files.push({ path, body: await readFile(full) });
+        files.push({ path, full });
       }
     }
   }
 
   await walk(root);
   return { files, skipped };
+}
+
+async function readFiles(listed) {
+  const files = [];
+  for (const file of listed) files.push({ path: file.path, body: await readFile(file.full) });
+  return files;
 }
 
 function buildZip(files) {
@@ -218,12 +225,8 @@ async function readSavedName(root) {
   );
 }
 
-async function publish(args) {
-  const { values, positionals } = parseArgs({
-    args,
-    options: { name: { type: 'string' }, overwrite: { type: 'boolean', default: false } },
-    allowPositionals: true,
-  });
+/** フォルダとページ名を確かめ、送るファイルを並べる。defaultName が無ければページ名は必須 */
+async function openFolder(values, positionals, defaultName) {
   if (positionals.length > 1) throw new CliError('フォルダは 1 つだけ指定してください。');
   const root = resolve(positionals[0] ?? '.');
   if (!(await lstat(root).catch(() => null))?.isDirectory()) {
@@ -236,7 +239,7 @@ async function publish(args) {
       `このフォルダは「${saved}」として公開済みです（${PAGE_FILE}）。別の名前で公開するなら、${PAGE_FILE} を消してから実行してください。`,
     );
   }
-  const name = saved ?? values.name;
+  const name = saved ?? values.name ?? defaultName;
   if (!name)
     throw new CliError('ページ名を --name で指定してください。ページ名は URL になります。');
   if (!NAME.test(name)) {
@@ -245,10 +248,21 @@ async function publish(args) {
     );
   }
 
-  const { files, skipped } = await collectFiles(root);
+  const { files, skipped } = await listFiles(root);
   if (!files.some((file) => file.path === 'index.html' || file.path === 'index.md')) {
     throw new CliError('フォルダの直下に index.html か index.md が必要です。');
   }
+  return { root, saved, name, listed: files, skipped };
+}
+
+async function publish(args) {
+  const { values, positionals } = parseArgs({
+    args,
+    options: { name: { type: 'string' }, overwrite: { type: 'boolean', default: false } },
+    allowPositionals: true,
+  });
+  const { root, saved, name, listed, skipped } = await openFolder(values, positionals);
+  const files = await readFiles(listed);
 
   const credentials = await readCredentials();
   if (!saved) {
@@ -302,6 +316,201 @@ async function list() {
     const mine = page.canModify ? '' : '（更新できない）';
     console.log(`${page.name}\t${page.title}\t${page.owner}\t${page.url}${mine}`);
   }
+}
+
+// サーバーの src/app/mime.ts と同じ
+const CONTENT_TYPES = {
+  html: 'text/html; charset=utf-8',
+  htm: 'text/html; charset=utf-8',
+  css: 'text/css; charset=utf-8',
+  js: 'text/javascript; charset=utf-8',
+  mjs: 'text/javascript; charset=utf-8',
+  json: 'application/json; charset=utf-8',
+  map: 'application/json; charset=utf-8',
+  txt: 'text/plain; charset=utf-8',
+  md: 'text/markdown; charset=utf-8',
+  xml: 'application/xml; charset=utf-8',
+  svg: 'image/svg+xml',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  ico: 'image/x-icon',
+  woff: 'font/woff',
+  woff2: 'font/woff2',
+  ttf: 'font/ttf',
+  otf: 'font/otf',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  pdf: 'application/pdf',
+  wasm: 'application/wasm',
+  csv: 'text/csv; charset=utf-8',
+};
+const TEXT = { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' };
+const MAX_ZIP_BYTES = 50 * 1024 * 1024;
+// / で始まるパスは、公開すると Nakamaba の直下を指し、ページの中のファイルに届かない
+const ROOT_RELATIVE = [
+  /\b(?:href|src|srcset|action|poster)\s*=\s*["']?(\/(?!\/)[^"'\s>]+)/gi,
+  /url\(\s*["']?(\/(?!\/)[^"')\s]+)/gi,
+  /\]\(\s*<?(\/(?!\/)[^)\s>]+)/g,
+];
+
+function contentTypeFor(path) {
+  const fileName = path.slice(path.lastIndexOf('/') + 1);
+  const dot = fileName.lastIndexOf('.');
+  if (dot < 0) return 'application/octet-stream';
+  return CONTENT_TYPES[fileName.slice(dot + 1).toLowerCase()] ?? 'application/octet-stream';
+}
+
+function plainText(html) {
+  const entities = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" };
+  return html
+    .replace(/<[^>]*>/g, '')
+    .replace(/&(amp|lt|gt|quot|#39);/g, (_, entity) => entities[entity])
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** トップのカードに出る名前。サーバーと同じく index.html の <title>、index.md の最初の見出し、ページ名の順 */
+function cardTitle(files, name) {
+  const html = files.find((file) => file.path === 'index.html');
+  const title = html && /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(html.body.toString('utf8'));
+  if (title && plainText(title[1])) return plainText(title[1]);
+  const markdown = files.find((file) => file.path === 'index.md');
+  const heading =
+    markdown &&
+    /^ {0,3}#{1,6}[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/m.exec(markdown.body.toString('utf8'));
+  return heading ? heading[1].trim() : name;
+}
+
+function findRootRelativeLinks(files) {
+  const found = [];
+  for (const file of files) {
+    if (!/\.(?:html?|css|md|svg)$/i.test(file.path)) continue;
+    file.body
+      .toString('utf8')
+      .split('\n')
+      .forEach((line, index) => {
+        for (const pattern of ROOT_RELATIVE) {
+          for (const match of line.matchAll(pattern)) {
+            found.push(`${file.path}:${index + 1} ${match[1]}`);
+          }
+        }
+      });
+  }
+  return found;
+}
+
+/** 公開後と同じ /<ページ名>/ の形で、フォルダのファイルを返す。読むたびに並べ直すので、直せば反映される */
+async function servePreview(root, name, request, response) {
+  const send = (status, headers, body = '') => {
+    response.writeHead(status, headers);
+    response.end(body);
+  };
+  const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+  let pathname;
+  try {
+    pathname = decodeURIComponent(url.pathname);
+  } catch {
+    return send(400, TEXT, 'URL の形式が正しくありません。');
+  }
+  const base = `/${name}/`;
+  if (pathname === '/') return send(302, { location: base });
+  if (pathname === `/${name}`) return send(301, { location: `${base}${url.search}` });
+  if (!pathname.startsWith(base)) {
+    return send(404, TEXT, `${pathname} はページの外です。公開すると Nakamaba の直下を指します。`);
+  }
+
+  let path = pathname.slice(base.length);
+  if (path === '' || path.endsWith('/')) {
+    path += 'index.html';
+  } else if (!path.slice(path.lastIndexOf('/') + 1).includes('.')) {
+    // 公開側と同じく、末尾の / が無いと相対リンクが 1 つ上を指すので転送する
+    return send(301, { location: `${pathname}/${url.search}` });
+  }
+  if (/\.md$/i.test(path)) {
+    return send(404, TEXT, `${path} は公開すると .html に変わるので、この URL では開けません。`);
+  }
+
+  const { files } = await listFiles(root);
+  const byPath = new Map(files.map((file) => [file.path, file]));
+  const file = byPath.get(path) ?? byPath.get(path.replace(/\.html$/, '.md'));
+  if (!file) return send(404, TEXT, `${path} はありません。公開しても 404 になります。`);
+  // Markdown は公開するときにサーバーが HTML にするので、下見では文字のまま返す
+  const type = file.path === path ? contentTypeFor(path) : 'text/plain; charset=utf-8';
+  send(200, { 'content-type': type, 'cache-control': 'no-store' }, await readFile(file.full));
+}
+
+async function preview(args) {
+  const { values, positionals } = parseArgs({
+    args,
+    options: { name: { type: 'string' }, port: { type: 'string', default: '0' } },
+    allowPositionals: true,
+  });
+  const port = Number(values.port);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new CliError('--port には 0〜65535 の数を指定してください。');
+  }
+  const { root, name, listed, skipped } = await openFolder(values, positionals, 'preview');
+  const files = await readFiles(listed);
+
+  const outputs = new Set();
+  for (const file of files) {
+    const output = file.path.replace(/\.md$/i, '.html');
+    if (outputs.has(output)) {
+      throw new CliError(`Markdown を変換すると同じパスになります: ${output}`);
+    }
+    outputs.add(output);
+  }
+  const zipBytes = buildZip(files).length;
+  if (zipBytes > MAX_ZIP_BYTES) {
+    throw new CliError(
+      `zip にすると上限（${formatBytes(MAX_ZIP_BYTES)}）を超えます（${formatBytes(zipBytes)}）。`,
+    );
+  }
+
+  const server = createServer((request, response) => {
+    servePreview(root, name, request, response).catch((error) => {
+      if (!response.headersSent) response.writeHead(500, TEXT);
+      response.end(error instanceof CliError ? error.message : String(error));
+    });
+  });
+  await new Promise((resolveListen, reject) => {
+    server.once('error', (error) => {
+      reject(
+        error.code === 'EADDRINUSE'
+          ? new CliError(`ポート ${port} は使われています。--port で別の番号を指定してください。`)
+          : error,
+      );
+    });
+    server.listen(port, '127.0.0.1', resolveListen);
+  });
+
+  const lines = [
+    `下見: http://127.0.0.1:${server.address().port}/${name}/`,
+    `カードの名前: ${cardTitle(files, name)}`,
+    `カードの画像: ${files.some((file) => file.path === 'thumbnail.png') ? 'thumbnail.png' : 'なし（グラデーションにタイトルの最初の文字を重ねる）'}`,
+    `ファイル: ${files.length} 個・zip にして ${formatBytes(zipBytes)}`,
+  ];
+  if (skipped.length > 0) lines.push(`送らないもの: ${skipped.join(', ')}`);
+  const links = findRootRelativeLinks(files);
+  if (links.length > 0) {
+    lines.push(
+      '/ で始まるパスがあります。公開すると Nakamaba の直下を指して壊れるので、相対パスにしてください:',
+      ...links.slice(0, 20).map((link) => `  ${link}`),
+    );
+    if (links.length > 20) lines.push(`  ほか ${links.length - 20} か所`);
+  }
+  if (files.some((file) => /\.md$/i.test(file.path))) {
+    lines.push('Markdown は公開するときに HTML へ変換されるので、下見では文字のまま表示します。');
+  }
+  lines.push('ファイルを直したら、ブラウザで読み込み直せば反映されます。Ctrl-C で止めます。');
+  console.log(lines.join('\n'));
 }
 
 function prompter() {
@@ -385,9 +594,11 @@ const USAGE = `使い方:
   node nakamaba.mjs login                    管理画面の URL・ユーザー名・パスワードを保存する（本人が実行する）
   node nakamaba.mjs list                     公開中のページと使用量を表示する
   node nakamaba.mjs publish [フォルダ] [--name <ページ名>] [--overwrite]
-                                             フォルダを公開する。2 回目からは nakamaba.json のページ名を更新する`;
+                                             フォルダを公開する。2 回目からは nakamaba.json のページ名を更新する
+  node nakamaba.mjs preview [フォルダ] [--name <ページ名>] [--port <番号>]
+                                             公開の前に、手元で公開後と同じ URL の形で開く。何も送らない`;
 
-const COMMANDS = { login, list, publish };
+const COMMANDS = { login, list, publish, preview };
 
 const [command, ...rest] = process.argv.slice(2);
 const run = Object.hasOwn(COMMANDS, command ?? '') ? COMMANDS[command] : null;

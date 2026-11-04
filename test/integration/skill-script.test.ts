@@ -1,5 +1,5 @@
 // プラグインの公開スクリプトを子プロセスで動かし、moto につないだ API へ実際に公開する
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -320,5 +320,71 @@ describe('login', () => {
     expect(result.code).toBe(1);
     expect(result.stderr).toContain('https://');
     await expect(stat(path)).rejects.toThrow();
+  });
+});
+
+describe('preview', () => {
+  // 止めるまで動き続けるので、案内の最後の行が出るまで待って URL を受け取る
+  async function startPreview(
+    args: string[],
+  ): Promise<{ url: string; output: string; stop: () => void }> {
+    const child = spawn(process.execPath, [SCRIPT, 'preview', ...args], {
+      env: { ...process.env, NAKAMABA_CREDENTIALS: join(workDir, 'no-credentials') },
+    });
+    let output = '';
+    const url = await new Promise<string>((resolve, reject) => {
+      child.stdout.on('data', (chunk: Buffer) => {
+        output += chunk.toString('utf8');
+        const match = /^下見: (\S+)/m.exec(output);
+        if (match?.[1] && output.includes('Ctrl-C')) resolve(match[1]);
+      });
+      child.on('exit', (code) => reject(new Error(`preview が終了しました（${code}）: ${output}`)));
+    });
+    return { url, output, stop: () => child.kill() };
+  }
+
+  it('ログインせずに、公開後と同じ /<ページ名>/ の形で開き、送らないファイルは返さない', async () => {
+    const dir = await makeSite({
+      'index.html': '<title>下見</title><link href="/style.css" rel="stylesheet">',
+      'style.css': 'body {}',
+      'notes.md': '# メモ',
+      '.env': 'SECRET=1',
+      'nakamaba.json': '{"name": "skill-preview"}',
+    });
+    const preview = await startPreview([dir]);
+    try {
+      expect(preview.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/skill-preview\/$/);
+      expect(preview.output).toContain('カードの名前: 下見');
+      expect(preview.output).toContain('送らないもの: .env, nakamaba.json');
+      expect(preview.output).toContain('index.html:1 /style.css');
+
+      const page = await fetch(preview.url);
+      expect(page.headers.get('content-type')).toBe('text/html; charset=utf-8');
+      expect(await page.text()).toContain('<title>下見</title>');
+      const withoutSlash = await fetch(preview.url.slice(0, -1), { redirect: 'manual' });
+      expect(withoutSlash.status).toBe(301);
+      expect(withoutSlash.headers.get('location')).toBe('/skill-preview/');
+
+      // Markdown は公開後の .html の URL で、文字のまま返す
+      expect(await (await fetch(`${preview.url}notes.html`)).text()).toBe('# メモ');
+      for (const path of ['.env', 'nakamaba.json', 'notes.md']) {
+        expect((await fetch(`${preview.url}${path}`)).status).toBe(404);
+      }
+      // / で始まるパスは、公開後と同じくページの中に届かない
+      expect((await fetch(new URL('/style.css', preview.url))).status).toBe(404);
+
+      // 起動した後に直したファイルも、読み込み直せば反映される
+      await writeFile(join(dir, 'style.css'), 'body { color: red; }');
+      expect(await (await fetch(`${preview.url}style.css`)).text()).toBe('body { color: red; }');
+    } finally {
+      preview.stop();
+    }
+  });
+
+  it('Markdown を変換すると重なるパスがあれば、公開と同じく止める', async () => {
+    const dir = await makeSite({ 'index.md': '# a', 'index.html': '<title>a</title>' });
+    const result = await run(['preview', dir], join(workDir, 'no-credentials'));
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('同じパスになります: index.html');
   });
 });
