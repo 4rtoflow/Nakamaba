@@ -24,8 +24,9 @@ AI エージェントにこのリポジトリを読ませて、聞いてくだ�
 Claude Code にプラグインを入れると、「ページを作って Nakamaba に公開して」「さっきのページを更新して」のように頼めます。
 
 ```sh
-claude plugin marketplace add 4rtoflow/Nakamaba
-claude plugin install nakamaba@nakamaba
+claude plugin install nakamaba --marketplace 4rtoflow/Nakamaba
 ```
 
 初めて公開するときは、エージェントがログイン用のコマンドを示します。パスワードを会話に残さないよう、そのコマンドは別のターミナルで実行してください。
+
+プラグインは自動では更新されません。`claude plugin update nakamaba@nakamaba` で更新するか、`/plugin` の Marketplaces で `nakamaba` の自動更新を有効にしてください。
