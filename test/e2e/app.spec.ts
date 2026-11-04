@@ -119,6 +119,7 @@ test('メンバーにはユーザーの管理が出ない', async () => {
   await expect(alicePage.locator('#public-link')).toHaveAttribute('href', devState().publicOrigin);
   await expect(alicePage.locator('#users-panel')).toBeHidden();
   await expect(adminPage.locator('#users-panel')).toBeVisible();
+  await expect(alicePage.locator('#usage')).toHaveText('使用量: 0 B / 1 GB');
 });
 
 test('管理画面から zip を公開でき、公開側で CSS と画像つきで開ける', async () => {
@@ -133,6 +134,7 @@ test('管理画面から zip を公開でき、公開側で CSS と画像つき�
   ]);
   await expect(alicePage.locator('#status')).toContainText('公開しました');
   await expect(alicePage.locator('[data-page="cats"]')).toContainText('猫の写真');
+  await expect(alicePage.locator('#usage')).toHaveText(/^使用量: [1-9][\d.]* KB \/ 1 GB$/);
 
   const { publicOrigin } = devState();
   const visitor = await alicePage.context().browser()?.newContext();

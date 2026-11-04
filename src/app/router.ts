@@ -9,7 +9,7 @@ import {
   json,
   respond,
 } from './http.ts';
-import { createUpload, deletePage, publishPage } from './publish.ts';
+import { createUpload, deletePage, publishPage, usedBytes } from './publish.ts';
 import {
   createUser,
   deleteUser,
@@ -64,6 +64,10 @@ async function routePages(
           url: `${deps.publicBaseUrl}/${page.name}/`,
           canModify: page.owner === user.name || user.role === 'admin',
         })),
+      usage: {
+        usedBytes: await usedBytes(deps, pages, user.name),
+        maxBytes: deps.limits.maxBytesPerUser,
+      },
     });
   }
 

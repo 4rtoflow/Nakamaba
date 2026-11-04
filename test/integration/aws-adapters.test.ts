@@ -116,6 +116,8 @@ describe('PageStore（DynamoDB の条件付き書き込み）', () => {
     });
   });
 
+  // 同時に書いたときに 1 人だけ通るのは DynamoDB が保証する。moto は要求を並行に処理して
+  // 条件の確認と書き込みの間に割り込まれるため、同時の書き込みでは確かめない
   it('他の人の書き込みは通さず、元の値を変えない', async () => {
     const store = createPageStore(documents, config.pagesTable);
     await store.claim(claim({ name: 'taken' }));
@@ -135,16 +137,6 @@ describe('PageStore（DynamoDB の条件付き書き込み）', () => {
     );
     expect(result).toMatchObject({ claimed: true, isNew: false, page: { owner: 'alice' } });
     await expect(store.get('admin-edit')).resolves.toMatchObject({ owner: 'alice', title: '直す' });
-  });
-
-  it('同じ名前を同時に公開しても 1 人だけが通る', async () => {
-    const store = createPageStore(documents, config.pagesTable);
-    const actors = Array.from({ length: 10 }, (_, i) => `user-${i}`);
-    const results = await Promise.all(
-      actors.map((actor) => store.claim(claim({ name: 'race', actor }))),
-    );
-    const winners = results.filter((result) => result.claimed);
-    expect(winners).toHaveLength(1);
   });
 
   it('一覧に全件を返す（1 MB を超えてページングされても）', async () => {
@@ -187,6 +179,16 @@ describe('SiteFiles（S3）', () => {
     await files.delete(['a/index.html']);
     await expect(files.list('a/')).resolves.toEqual([]);
     await expect(files.list('ab/')).resolves.toEqual(['ab/index.html']);
+  });
+
+  it('前方一致するファイルの合計サイズを返す', async () => {
+    const files = createSiteFiles(s3, config.siteBucket);
+    await files.put('size/index.html', Buffer.alloc(10), 'text/html');
+    await files.put('size/a/b.png', Buffer.alloc(32), 'image/png');
+    await files.put('size2/index.html', Buffer.alloc(100), 'text/html');
+    await expect(files.totalBytes('size/')).resolves.toBe(42);
+    await expect(files.totalBytes('no-such-page/')).resolves.toBe(0);
+    await files.delete(['size/index.html', 'size/a/b.png', 'size2/index.html']);
   });
 
   it('空の配列を渡しても削除の API を呼ばない', async () => {

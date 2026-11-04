@@ -55,6 +55,7 @@ export interface OutputFile {
 export interface SiteFiles {
   put(key: string, body: Buffer | string, contentType: string): Promise<void>;
   list(prefix: string): Promise<string[]>;
+  totalBytes(prefix: string): Promise<number>;
   delete(keys: string[]): Promise<void>;
 }
 
@@ -100,6 +101,7 @@ export interface Limits {
   maxZipBytes: number;
   maxUnzippedBytes: number;
   maxFiles: number;
+  maxBytesPerUser: number;
   uploadExpiresSeconds: number;
 }
 
@@ -107,6 +109,7 @@ export const DEFAULT_LIMITS: Limits = {
   maxZipBytes: 50 * 1024 * 1024,
   maxUnzippedBytes: 200 * 1024 * 1024,
   maxFiles: 1000,
+  maxBytesPerUser: 1024 * 1024 * 1024,
   uploadExpiresSeconds: 15 * 60,
 };
 

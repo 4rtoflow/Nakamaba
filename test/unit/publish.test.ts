@@ -72,6 +72,87 @@ describe('公開側の共通ファイル', () => {
   });
 });
 
+describe('1 人あたりの上限', () => {
+  const ofSize = (bytes: number): ZipEntryInput[] => [
+    { name: 'index.html', data: 'x'.repeat(bytes) },
+  ];
+
+  beforeEach(() => {
+    world.deps.limits = { ...world.deps.limits, maxBytesPerUser: 100 };
+  });
+
+  it('既定の上限は 1 GB', () => {
+    expect(createFakeWorld().deps.limits.maxBytesPerUser).toBe(1024 ** 3);
+  });
+
+  it('上限ちょうどまでは公開できる', async () => {
+    await publishAs(alice, 'a', ofSize(60));
+    await expect(publishAs(alice, 'b', ofSize(40))).resolves.toMatchObject({ isNew: true });
+  });
+
+  it('1 バイトでも超えると 413 で止め、何も変えず、送られた zip を消す', async () => {
+    await publishAs(alice, 'a', ofSize(60));
+    world.notices.length = 0;
+    const error = await errorOf(publishAs(alice, 'b', ofSize(41)));
+    expect(error.status).toBe(413);
+    expect(error.code).toBe('quota_exceeded');
+    expect(error.message).toContain('60 B');
+    expect(error.message).toContain('41 B');
+    expect(world.pages.has('b')).toBe(false);
+    expect(world.siteFiles.has('b/index.html')).toBe(false);
+    expect(world.uploads.has(`uploads/alice/b/${TEST_UPLOAD_ID}.zip`)).toBe(false);
+    expect(world.notices).toEqual([]);
+  });
+
+  it('上書きでは古いサイズを数えない', async () => {
+    await publishAs(alice, 'a', ofSize(60));
+    await expect(publishAs(alice, 'a', ofSize(100))).resolves.toMatchObject({ isNew: false });
+  });
+
+  it('上書きで超えるときは、今のページを残す', async () => {
+    await publishAs(alice, 'a', ofSize(30));
+    await publishAs(alice, 'b', ofSize(60));
+    const error = await errorOf(publishAs(alice, 'b', ofSize(71)));
+    expect(error.code).toBe('quota_exceeded');
+    expect(world.siteFiles.get('b/index.html')?.body.length).toBe(60);
+    await expect(publishAs(alice, 'b', ofSize(70))).resolves.toMatchObject({ isNew: false });
+  });
+
+  it('他の人のページは数えない', async () => {
+    await publishAs(alice, 'a', ofSize(90));
+    await expect(publishAs(bob, 'b', ofSize(90))).resolves.toMatchObject({ isNew: true });
+  });
+
+  it('Admin も同じ上限で止まる', async () => {
+    await publishAs(admin, 'a', ofSize(90));
+    const error = await errorOf(publishAs(admin, 'b', ofSize(11)));
+    expect(error.code).toBe('quota_exceeded');
+  });
+
+  it('Admin が他の人のページを上書きすると、持ち主の分として数える', async () => {
+    await publishAs(admin, 'own', ofSize(90));
+    await publishAs(alice, 'a', ofSize(60));
+    await publishAs(alice, 'b', ofSize(30));
+    // Admin 自身の使用量に関わらず、alice の分で判定する
+    await expect(publishAs(admin, 'b', ofSize(40))).resolves.toMatchObject({ isNew: false });
+    const error = await errorOf(publishAs(admin, 'b', ofSize(41)));
+    expect(error.code).toBe('quota_exceeded');
+    expect(error.message).toContain('60 B');
+  });
+
+  it('ページを削除すると空く', async () => {
+    await publishAs(alice, 'a', ofSize(90));
+    expect((await errorOf(publishAs(alice, 'b', ofSize(20)))).status).toBe(413);
+    await deletePage(world.deps, alice, 'a');
+    await expect(publishAs(alice, 'b', ofSize(20))).resolves.toMatchObject({ isNew: true });
+  });
+
+  it('Markdown は変換後のサイズで数える', async () => {
+    const error = await errorOf(publishAs(alice, 'a', [{ name: 'index.md', data: '# a' }]));
+    expect(error.code).toBe('quota_exceeded');
+  });
+});
+
 describe('createUpload', () => {
   it('発行する人とページ名を含むキーで、サイズの上限つきの URL を返す', async () => {
     const result = await createUpload(world.deps, alice, 'my-page');

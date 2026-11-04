@@ -26,6 +26,32 @@ function uploadKey(user: User, pageName: string, uploadId: string): string {
   return `uploads/${user.name}/${pageName}/${uploadId}.zip`;
 }
 
+function formatBytes(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${Number(value.toFixed(1))} ${units[unit]}`;
+}
+
+/** 実際に置かれているサイズを S3 から数える。exceptPage は上書きする前のページを除くために使う */
+export async function usedBytes(
+  deps: Pick<Deps, 'siteFiles'>,
+  pages: Page[],
+  owner: string,
+  exceptPage?: string,
+): Promise<number> {
+  const sizes = await Promise.all(
+    pages
+      .filter((page) => page.owner === owner && page.name !== exceptPage)
+      .map((page) => deps.siteFiles.totalBytes(`${page.name}/`)),
+  );
+  return sizes.reduce((sum, size) => sum + size, 0);
+}
+
 export function pageUrl(deps: Deps, pageName: string): string {
   return `${deps.publicBaseUrl}/${pageName}/`;
 }
@@ -68,7 +94,8 @@ export async function publishPage(
   if (!UPLOAD_ID.test(uploadId)) {
     throw new HttpError(400, 'invalid_upload_id', 'uploadId の形式が正しくありません。');
   }
-  if (!canModify(user, await deps.pages.get(pageName))) throw nameTaken();
+  const currentPage = await deps.pages.get(pageName);
+  if (!canModify(user, currentPage)) throw nameTaken();
 
   const key = uploadKey(user, pageName, uploadId);
   const size = await deps.uploads.size(key);
@@ -82,6 +109,19 @@ export async function publishPage(
 
   const files = await extractZip(await deps.uploads.read(key), deps.limits);
   const built = buildPage(files, pageName);
+
+  // Admin が他の人のページを上書きしても持ち主は変わらないので、持ち主の分として数える
+  const owner = currentPage?.owner ?? user.name;
+  const used = await usedBytes(deps, await deps.pages.list(), owner, pageName);
+  const pageBytes = built.files.reduce((sum, file) => sum + file.body.length, 0);
+  if (used + pageBytes > deps.limits.maxBytesPerUser) {
+    await deps.uploads.delete(key);
+    throw new HttpError(
+      413,
+      'quota_exceeded',
+      `1 人あたりの上限（${formatBytes(deps.limits.maxBytesPerUser)}）を超えます。使用中は ${formatBytes(used)}、このページは ${formatBytes(pageBytes)} です。不要なページを削除してください。`,
+    );
+  }
 
   const claim = await deps.pages.claim({
     name: pageName,

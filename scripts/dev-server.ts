@@ -112,8 +112,11 @@ if (stateFile) {
   );
 }
 
-console.log(`管理画面: ${ADMIN_ORIGIN}（ユーザー名 ${ADMIN_NAME} / パスワード ${password}）`);
-console.log(`公開側:   ${PUBLIC_ORIGIN}`);
+// パスワードは - と _ を含むので、ダブルクリックでも行ごとでも選びやすいよう 1 行に 1 つだけ出す
+console.log(`管理画面:   ${ADMIN_ORIGIN}`);
+console.log(`公開側:     ${PUBLIC_ORIGIN}`);
+console.log(`ユーザー名: ${ADMIN_NAME}`);
+console.log(`パスワード: ${password}`);
 
 function shutdown() {
   adminServer.close();

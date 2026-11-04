@@ -1,0 +1,6 @@
+{
+  "name": "nakamaba",
+  "description": "Nakamaba に載せるページを作り、AI エージェントから公開・更新する",
+  "author": { "name": "4rtoflow" },
+  "repository": "https://github.com/4rtoflow/Nakamaba"
+}
