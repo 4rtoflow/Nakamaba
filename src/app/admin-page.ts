@@ -8,6 +8,7 @@ function asset(name: string): string {
 export const ADMIN_HTML = asset('index.html');
 export const ADMIN_CSS = asset('admin.css');
 export const ADMIN_JS = asset('admin.js');
+export const THEME_JS = asset('theme.js');
 export const FAVICON_SVG = asset('favicon.svg');
 
 function binaryAsset(name: string): Buffer {

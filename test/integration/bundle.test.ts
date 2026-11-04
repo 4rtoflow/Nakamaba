@@ -78,6 +78,7 @@ describe('デプロイされるバンドル', () => {
       'favicon.ico',
       'favicon.svg',
       'index.html',
+      'theme.js',
     ]);
   });
 

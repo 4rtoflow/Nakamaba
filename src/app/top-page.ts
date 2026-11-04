@@ -1,3 +1,4 @@
+import { THEME_JS } from './admin-page.ts';
 import type { Page } from './deps.ts';
 import { escapeHtml } from './html.ts';
 
@@ -20,24 +21,25 @@ const GRADIENTS = [
 const STYLE = `
 :root {
   color-scheme: light dark;
-  --ink: #141414; --on-ink: #fff; --muted: #707070; --canvas: #fff; --soft: #f3f3f3; --hairline: #e8e8e8;
-  --footer-bg: #141414; --footer-strong: #fff; --footer-muted: #adadad;
-  --accent: #c2410c;
+  --ink: light-dark(#141414, #ededed); --on-ink: light-dark(#fff, #141414); --muted: light-dark(#707070, #9a9a9a);
+  --canvas: light-dark(#fff, #121212); --soft: light-dark(#f3f3f3, #1f1f1f); --hairline: light-dark(#e8e8e8, #2e2e2e);
+  --footer-bg: light-dark(#141414, #1f1f1f); --footer-strong: light-dark(#fff, #ededed); --footer-muted: light-dark(#adadad, #9a9a9a);
+  --accent: light-dark(#c2410c, #fb923c);
   font-family: Inter, "Noto Sans JP", -apple-system, "Hiragino Sans", "Helvetica Neue", Arial, sans-serif;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ink: #ededed; --on-ink: #141414; --muted: #9a9a9a; --canvas: #121212; --soft: #1f1f1f; --hairline: #2e2e2e;
-    --footer-bg: #1f1f1f; --footer-strong: #ededed; --footer-muted: #9a9a9a;
-    --accent: #fb923c;
-  }
-}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; background: var(--canvas); color: var(--ink); font-size: 16px; line-height: 1.5; font-weight: 450; }
 a { color: inherit; text-decoration: none; }
 .nav { position: sticky; top: 16px; z-index: 1; display: flex; justify-content: space-between; align-items: center; gap: 16px; width: fit-content; min-width: min(420px, calc(100% - 32px)); margin: 16px auto 0; padding: 10px 20px; border-radius: 9999px; background: var(--soft); }
 .brand { font-weight: 650; letter-spacing: 0; }
 .count { color: var(--muted); font-size: 14px; }
+.nav-right { display: flex; align-items: center; gap: 12px; }
+.theme-toggle { display: grid; place-items: center; width: 32px; height: 32px; margin: -4px -8px; padding: 0; border: 0; border-radius: 9999px; background: transparent; color: var(--ink); cursor: pointer; }
+.theme-toggle:hover { background: var(--hairline); }
+.theme-toggle:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.theme-toggle svg { width: 20px; height: 20px; }
 .hero { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px; width: 100%; max-width: 1120px; margin: 0 auto; padding: 80px 24px 48px; }
 .views { display: inline-flex; padding: 4px; border-radius: 9999px; background: var(--soft); }
 .views input { position: absolute; opacity: 0; pointer-events: none; }
@@ -106,6 +108,8 @@ ${visual}
 </a>`;
 }
 
+const THEME_TOGGLE = `<button class="theme-toggle" id="theme-toggle" type="button" aria-label="ライトとダークを切り替える" title="ライトとダークを切り替える"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 3a7 7 0 0 1 0 14z" fill="currentColor"/></svg></button>`;
+
 function layout(title: string, main: string, headerRight: string): string {
   return `<!doctype html>
 <html lang="ja">
@@ -116,11 +120,12 @@ function layout(title: string, main: string, headerRight: string): string {
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<script>${THEME_JS}</script>
 ${FONTS}
 <style>${STYLE}</style>
 </head>
 <body>
-<nav class="nav"><a class="brand" href="/">Nakamaba</a>${headerRight}</nav>
+<nav class="nav"><a class="brand" href="/">Nakamaba</a><div class="nav-right">${headerRight}${THEME_TOGGLE}</div></nav>
 ${main}
 <footer><div><strong>Nakamaba</strong>HTML と Markdown の静的ホスティング。</div></footer>
 </body>

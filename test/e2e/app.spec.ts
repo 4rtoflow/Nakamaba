@@ -221,6 +221,27 @@ test('無いページは 404 を返し、一覧へ戻れる', async ({ browser }
   await context.close();
 });
 
+test('公開側と管理画面でライトとダークを切り替えられ、再読み込みしても戻らない', async ({
+  browser,
+}) => {
+  const { adminOrigin, publicOrigin } = devState();
+  const context = await browser.newContext({ colorScheme: 'light' });
+  const background = (page: Page) =>
+    page.locator('body').evaluate((node) => getComputedStyle(node).backgroundColor);
+
+  // 管理画面は CSP でインラインのスクリプトを禁じているので、そこでも動くことを確かめる
+  for (const origin of [publicOrigin, adminOrigin]) {
+    const page = await context.newPage();
+    await page.goto(origin);
+    expect(await background(page)).toBe('rgb(255, 255, 255)');
+    await page.getByRole('button', { name: 'ライトとダークを切り替える' }).click();
+    await expect.poll(() => background(page)).toBe('rgb(18, 18, 18)');
+    await page.reload();
+    expect(await background(page)).toBe('rgb(18, 18, 18)');
+  }
+  await context.close();
+});
+
 test('他の人のページ名では公開できず、削除ボタンも出ない', async () => {
   await bobPage.reload();
   await publishZip(bobPage, 'cats', [{ name: 'index.html', data: '乗っ取り' }]);
