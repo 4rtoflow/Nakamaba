@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Page } from '../../src/app/deps.ts';
-import { formatDate, renderNotFoundPage, renderTopPage } from '../../src/app/top-page.ts';
+import {
+  formatDate,
+  gradientIndex,
+  renderNotFoundPage,
+  renderTopPage,
+} from '../../src/app/top-page.ts';
 
 function page(overrides: Partial<Page> = {}): Page {
   return {
@@ -41,12 +46,20 @@ describe('renderTopPage', () => {
   it('thumbnail.png があれば画像を出す', () => {
     const html = renderTopPage([page({ hasThumbnail: true })]);
     expect(html).toContain('src="/my-page/thumbnail.png"');
-    expect(html).not.toContain('class="placeholder"');
+    expect(html).not.toContain('class="placeholder');
   });
 
-  it('画像が無ければタイトルの最初の文字を出す', () => {
+  it('画像が無ければグラデーションの上にタイトルの最初の文字を出す', () => {
     const html = renderTopPage([page({ title: '🍣 お寿司' })]);
-    expect(html).toContain('<div class="placeholder" aria-hidden="true">🍣</div>');
+    expect(html).toContain(
+      `<div class="placeholder g${gradientIndex('my-page')}" aria-hidden="true">🍣</div>`,
+    );
+  });
+
+  it('グラデーションはページ名で決まり、名前が違えば散らばる', () => {
+    expect(gradientIndex('my-page')).toBe(gradientIndex('my-page'));
+    const names = Array.from({ length: 50 }, (_, i) => `page-${i}`);
+    expect(new Set(names.map(gradientIndex)).size).toBeGreaterThan(1);
   });
 
   it('タイトルとユーザー名をエスケープする', () => {

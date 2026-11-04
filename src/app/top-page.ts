@@ -6,6 +6,17 @@ const FONTS =
   '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>' +
   '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&family=Noto+Sans+JP:wght@300..700&display=swap">';
 
+const GRADIENTS = [
+  ['#f97316', '#db2777'],
+  ['#6366f1', '#a855f7'],
+  ['#06b6d4', '#3b82f6'],
+  ['#10b981', '#0e7490'],
+  ['#f59e0b', '#ef4444'],
+  ['#ec4899', '#8b5cf6'],
+  ['#14b8a6', '#65a30d'],
+  ['#1e3a8a', '#7c3aed'],
+] as const;
+
 const STYLE = `
 :root {
   color-scheme: light;
@@ -27,7 +38,8 @@ a { color: inherit; text-decoration: none; }
 .card:hover, .card:focus-visible { background: var(--soft); }
 .card:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .thumb { aspect-ratio: 16 / 10; width: 100%; object-fit: cover; display: block; background: var(--soft); }
-.placeholder { aspect-ratio: 16 / 10; display: flex; align-items: center; justify-content: center; background: var(--soft); color: #adadad; font-size: 56px; font-weight: 650; }
+.placeholder { aspect-ratio: 16 / 10; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at 20% 15%, rgb(255 255 255 / .35), transparent 55%), linear-gradient(135deg, var(--from), var(--to)); color: rgb(255 255 255 / .92); font-size: 56px; font-weight: 650; }
+${GRADIENTS.map(([from, to], i) => `.g${i} { --from: ${from}; --to: ${to}; }`).join('\n')}
 .body { padding: 20px 24px 24px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .title { margin: 0; font-size: 20px; line-height: 1.35; font-weight: 600; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .meta { margin: 0; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
@@ -53,11 +65,18 @@ export function formatDate(iso: string): string {
   return DATE_FORMAT.format(new Date(iso));
 }
 
+// ページ名から決めるので、同じページは開き直しても同じ色になる。
+export function gradientIndex(name: string): number {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (Math.imul(hash, 31) + name.charCodeAt(i)) >>> 0;
+  return hash % GRADIENTS.length;
+}
+
 function renderCard(page: Page): string {
   const href = `/${page.name}/`;
   const visual = page.hasThumbnail
     ? `<img class="thumb" src="${href}thumbnail.png" alt="" loading="lazy">`
-    : `<div class="placeholder" aria-hidden="true">${escapeHtml(Array.from(page.title)[0] ?? '')}</div>`;
+    : `<div class="placeholder g${gradientIndex(page.name)}" aria-hidden="true">${escapeHtml(Array.from(page.title)[0] ?? '')}</div>`;
   return `<a class="card" href="${href}">
 ${visual}
 <div class="body">
