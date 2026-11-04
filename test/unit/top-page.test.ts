@@ -90,7 +90,12 @@ describe('renderTopPage', () => {
   });
 
   it('外部スクリプトを読み込まない', () => {
-    expect(renderTopPage([page()])).not.toContain('<script');
+    expect(renderTopPage([page()])).not.toMatch(/<script[^>]*\ssrc=/);
+  });
+
+  it('カードとリストの切り替えは、ページがあるときだけ出す', () => {
+    expect(renderTopPage([page()])).toContain('id="view-list"');
+    expect(renderTopPage([])).not.toContain('id="view-list"');
   });
 
   it('引数の配列を並べ替えない', () => {

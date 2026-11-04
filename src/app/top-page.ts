@@ -30,7 +30,13 @@ a { color: inherit; text-decoration: none; }
 .nav { position: sticky; top: 16px; z-index: 1; display: flex; justify-content: space-between; align-items: center; gap: 16px; width: fit-content; min-width: min(420px, calc(100% - 32px)); margin: 16px auto 0; padding: 10px 20px; border-radius: 9999px; background: var(--soft); }
 .brand { font-weight: 650; letter-spacing: 0; }
 .count { color: var(--muted); font-size: 14px; }
-.hero { width: 100%; max-width: 1120px; margin: 0 auto; padding: 80px 24px 48px; }
+.hero { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px; width: 100%; max-width: 1120px; margin: 0 auto; padding: 80px 24px 48px; }
+.views { display: inline-flex; padding: 4px; border-radius: 9999px; background: var(--soft); }
+.views input { position: absolute; opacity: 0; pointer-events: none; }
+.views label { display: flex; padding: 7px 12px; border-radius: 9999px; color: var(--muted); cursor: pointer; }
+.views svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+.views label:has(:checked) { background: var(--ink); color: #fff; }
+.views label:has(:focus-visible) { outline: 2px solid var(--ink); outline-offset: 2px; }
 .hero h1 { margin: 0; font-size: clamp(36px, 7vw, 64px); line-height: 1.1; font-weight: 650; }
 .hero h1 span { color: var(--accent); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; width: 100%; max-width: 1120px; margin: 0 auto; padding: 0 24px 80px; }
@@ -43,6 +49,12 @@ ${GRADIENTS.map(([from, to], i) => `.g${i} { --from: ${from}; --to: ${to}; }`).j
 .body { padding: 20px 24px 24px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .title { margin: 0; font-size: 20px; line-height: 1.35; font-weight: 600; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .meta { margin: 0; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+body:has(#view-list:checked) .grid { grid-template-columns: 1fr; gap: 0; }
+body:has(#view-list:checked) .card { flex-direction: row; align-items: center; gap: 20px; padding: 16px 12px; border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0; }
+body:has(#view-list:checked) .card:first-child { border-top: 1px solid var(--hairline); }
+body:has(#view-list:checked) :is(.thumb, .placeholder) { flex: none; width: 112px; border-radius: 12px; font-size: 28px; }
+body:has(#view-list:checked) .body { padding: 0; gap: 2px; }
+body:has(#view-list:checked) .title { font-size: 18px; -webkit-line-clamp: 2; }
 .empty { width: 100%; max-width: 1120px; margin: 0 auto 80px; padding: 0 24px; }
 .empty p { margin: 0; padding: 48px 24px; border-radius: 24px; background: var(--soft); color: var(--muted); text-align: center; }
 footer { margin-top: auto; padding: 32px 24px; border-radius: 24px 24px 0 0; background: var(--ink); color: #adadad; font-size: 14px; }
@@ -108,13 +120,23 @@ ${main}
 `;
 }
 
+// 一覧より前で選んだ形式を戻すので、読み込み直してもカードが一瞬見えることはない。
+const VIEW_TOGGLE = `<div class="views" role="radiogroup" aria-label="一覧の形式">
+<label title="カード"><input type="radio" name="view" value="grid" aria-label="カード" checked><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="5.5" height="5.5" rx="1.5"/><rect x="11.5" y="3" width="5.5" height="5.5" rx="1.5"/><rect x="3" y="11.5" width="5.5" height="5.5" rx="1.5"/><rect x="11.5" y="11.5" width="5.5" height="5.5" rx="1.5"/></svg></label>
+<label title="リスト"><input type="radio" name="view" value="list" id="view-list" aria-label="リスト"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 5.25h9M8 10h9M8 14.75h9"/><path d="M4 5.25h.01M4 10h.01M4 14.75h.01" stroke-width="2.6"/></svg></label>
+</div>
+<script>
+try { if (localStorage.getItem('nakamaba:view') === 'list') document.getElementById('view-list').checked = true; } catch {}
+document.addEventListener('change', (e) => { if (e.target.name === 'view') try { localStorage.setItem('nakamaba:view', e.target.value); } catch {} });
+</script>`;
+
 export function renderTopPage(pages: Page[]): string {
   const sorted = [...pages].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  const list =
-    sorted.length > 0
-      ? `<section class="grid">\n${sorted.map(renderCard).join('\n')}\n</section>`
-      : '<section class="empty"><p>まだページがありません。</p></section>';
-  const main = `<header class="hero"><h1>公開中のページ<span>。</span></h1></header>
+  const hasPages = sorted.length > 0;
+  const list = hasPages
+    ? `<section class="grid">\n${sorted.map(renderCard).join('\n')}\n</section>`
+    : '<section class="empty"><p>まだページがありません。</p></section>';
+  const main = `<header class="hero"><h1>公開中のページ<span>。</span></h1>${hasPages ? VIEW_TOGGLE : ''}</header>
 ${list}`;
   return layout('Nakamaba', main, `<span class="count">${sorted.length} ページ</span>`);
 }
