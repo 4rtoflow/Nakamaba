@@ -41,6 +41,23 @@ a { color: inherit; text-decoration: none; }
 .theme-toggle:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .theme-toggle svg { width: 20px; height: 20px; }
 .hero { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px; width: 100%; max-width: 1120px; margin: 0 auto; padding: 80px 24px 48px; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.sort { position: relative; }
+.sort svg { flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.sort button { border: 0; color: var(--ink); font: inherit; font-size: 15px; cursor: pointer; }
+.sort button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.sort-button { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 16px 0 14px; border-radius: 9999px; background: var(--soft); }
+.sort-button:hover { background: var(--hairline); }
+.sort-button[data-order="asc"] svg { transform: rotate(180deg); }
+.sort-menu { position: absolute; z-index: 2; top: calc(100% + 8px); left: 0; width: 240px; padding: 8px; border: 1px solid var(--hairline); border-radius: 20px; background: var(--canvas); }
+.sort-menu[hidden] { display: none; }
+.sort-menu p { margin: 0; padding: 8px 12px 4px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.sort-menu hr { margin: 6px 4px; border: 0; border-top: 1px solid var(--hairline); }
+.sort-menu button { display: flex; align-items: center; justify-content: space-between; width: 100%; height: 40px; padding: 0 12px; border-radius: 12px; background: transparent; text-align: left; }
+.sort-menu button:hover, .sort-menu button[aria-checked="true"] { background: var(--soft); }
+.sort-menu button[aria-checked="true"] { font-weight: 600; }
+.sort-menu button:not([aria-checked="true"]) svg { visibility: hidden; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .views { display: inline-flex; padding: 4px; border-radius: 9999px; background: var(--soft); }
 .views input { position: absolute; opacity: 0; pointer-events: none; }
 .views label { display: flex; padding: 7px 12px; border-radius: 9999px; color: var(--muted); cursor: pointer; }
@@ -59,6 +76,8 @@ ${GRADIENTS.map(([from, to], i) => `.g${i} { --from: ${from}; --to: ${to}; }`).j
 .body { padding: 20px 24px 24px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .title { margin: 0; font-size: 20px; line-height: 1.35; font-weight: 600; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .meta { margin: 0; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+.created, body[data-sort^="created"] .updated { display: none; }
+body[data-sort^="created"] .created { display: inline; }
 body:has(#view-list:checked) .grid { grid-template-columns: 1fr; gap: 0; }
 body:has(#view-list:checked) .card { flex-direction: row; align-items: center; gap: 20px; padding: 16px 12px; border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0; }
 body:has(#view-list:checked) .card:first-child { border-top: 1px solid var(--hairline); }
@@ -99,11 +118,11 @@ function renderCard(page: Page): string {
   const visual = page.hasThumbnail
     ? `<img class="thumb" src="${href}thumbnail.png" alt="" loading="lazy">`
     : `<div class="placeholder g${gradientIndex(page.name)}" aria-hidden="true">${escapeHtml(Array.from(page.title)[0] ?? '')}</div>`;
-  return `<a class="card" href="${href}">
+  return `<a class="card" href="${href}" data-created="${escapeHtml(page.createdAt)}" data-updated="${escapeHtml(page.updatedAt)}">
 ${visual}
 <div class="body">
 <h2 class="title">${escapeHtml(page.title)}</h2>
-<p class="meta">${escapeHtml(page.owner)} ・ ${formatDate(page.updatedAt)}</p>
+<p class="meta">${escapeHtml(page.owner)} ・ <span class="updated">更新 ${formatDate(page.updatedAt)}</span><span class="created">作成 ${formatDate(page.createdAt)}</span></p>
 </div>
 </a>`;
 }
@@ -143,13 +162,102 @@ try { if (localStorage.getItem('nakamaba:view') === 'list') document.getElementB
 document.addEventListener('change', (e) => { if (e.target.name === 'view') try { localStorage.setItem('nakamaba:view', e.target.value); } catch {} });
 </script>`;
 
+const SORT_ARROW =
+  '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M5.5 11.5 10 16l4.5-4.5"/></svg>';
+const SORT_CHECK =
+  '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 10.5 8.5 14.5 15.5 6"/></svg>';
+const SORT_GROUPS = [
+  ['updated', '更新日'],
+  ['created', '作成日'],
+] as const;
+const SORT_ORDERS = [
+  ['desc', '新しい順'],
+  ['asc', '古い順'],
+] as const;
+
+const SORT_MENU = `<div class="sort">
+<button type="button" class="sort-button" id="sort-button" aria-haspopup="menu" aria-expanded="false" aria-controls="sort-menu">${SORT_ARROW}<span class="visually-hidden">並び順: </span><span id="sort-label">更新日が新しい順</span></button>
+<div class="sort-menu" id="sort-menu" role="menu" aria-label="並び順" hidden>
+${SORT_GROUPS.map(
+  ([key, group]) =>
+    `<p aria-hidden="true">${group}</p>\n${SORT_ORDERS.map(
+      ([order, label]) =>
+        `<button type="button" role="menuitemradio" aria-checked="${key === 'updated' && order === 'desc'}" data-sort="${key}-${order}" aria-label="${group}が${label}">${label}${SORT_CHECK}</button>`,
+    ).join('\n')}`,
+).join('\n<hr>\n')}
+</div>
+</div>`;
+
+// HTML は更新日が新しい順で書き出し、選んだ並びにはここで並べ替える。一覧の直後で動かす
+const SORT_SCRIPT = `<script>
+(() => {
+  const button = document.getElementById('sort-button');
+  const menu = document.getElementById('sort-menu');
+  const items = [...menu.querySelectorAll('[data-sort]')];
+  const grid = document.querySelector('.grid');
+  const apply = (value) => {
+    const [key, order] = value.split('-');
+    const sign = order === 'asc' ? 1 : -1;
+    grid.append(...[...grid.children].sort((a, b) => a.dataset[key].localeCompare(b.dataset[key]) * sign));
+    document.body.dataset.sort = value;
+    button.dataset.order = order;
+    for (const item of items) {
+      const selected = item.dataset.sort === value;
+      item.setAttribute('aria-checked', String(selected));
+      if (selected) document.getElementById('sort-label').textContent = item.getAttribute('aria-label');
+    }
+  };
+  const open = () => {
+    menu.hidden = false;
+    button.setAttribute('aria-expanded', 'true');
+    items.find((item) => item.getAttribute('aria-checked') === 'true').focus();
+  };
+  const close = (returnFocus) => {
+    menu.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
+    if (returnFocus) button.focus();
+  };
+  let saved = null;
+  try { saved = localStorage.getItem('nakamaba:sort'); } catch {}
+  apply(items.some((item) => item.dataset.sort === saved) ? saved : 'updated-desc');
+
+  button.addEventListener('click', () => (menu.hidden ? open() : close(false)));
+  button.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown' && menu.hidden) { event.preventDefault(); open(); }
+  });
+  menu.addEventListener('click', (event) => {
+    const item = event.target.closest('[data-sort]');
+    if (!item) return;
+    apply(item.dataset.sort);
+    try { localStorage.setItem('nakamaba:sort', item.dataset.sort); } catch {}
+    close(true);
+  });
+  menu.addEventListener('keydown', (event) => {
+    const index = items.indexOf(document.activeElement);
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const step = event.key === 'ArrowDown' ? 1 : items.length - 1;
+      items[(index + step) % items.length].focus();
+    } else if (event.key === 'Escape') {
+      close(true);
+    } else if (event.key === 'Tab') {
+      close(false);
+    }
+  });
+  document.addEventListener('click', (event) => {
+    if (!menu.hidden && !event.target.closest('.sort')) close(false);
+  });
+})();
+</script>`;
+
 export function renderTopPage(pages: Page[]): string {
   const sorted = [...pages].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const hasPages = sorted.length > 0;
   const list = hasPages
-    ? `<section class="grid">\n${sorted.map(renderCard).join('\n')}\n</section>`
+    ? `<section class="grid">\n${sorted.map(renderCard).join('\n')}\n</section>\n${SORT_SCRIPT}`
     : '<section class="empty"><p>まだページがありません。</p></section>';
-  const main = `<header class="hero"><h1>公開中のページ<span>。</span></h1>${hasPages ? VIEW_TOGGLE : ''}</header>
+  const controls = `<div class="controls">${SORT_MENU}${VIEW_TOGGLE}</div>`;
+  const main = `<header class="hero"><h1>公開中のページ<span>。</span></h1>${hasPages ? controls : ''}</header>
 ${list}`;
   return layout('Nakamaba', main, `<span class="count">${sorted.length} ページ</span>`);
 }

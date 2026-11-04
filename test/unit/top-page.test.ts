@@ -29,6 +29,16 @@ describe('renderTopPage', () => {
     expect(html).toContain('1 ページ');
   });
 
+  it('並べ替えに使う作成日と更新日を、カードに両方持たせる', () => {
+    const html = renderTopPage([page({ createdAt: '2026-09-01T00:00:00.000Z' })]);
+    expect(html).toContain(
+      'data-created="2026-09-01T00:00:00.000Z" data-updated="2026-10-02T00:00:00.000Z"',
+    );
+    expect(html).toContain('<span class="updated">更新 2026-10-02</span>');
+    expect(html).toContain('<span class="created">作成 2026-09-01</span>');
+    expect(html).toContain('data-sort="created-asc" aria-label="作成日が古い順"');
+  });
+
   it('更新日は日本時間で表示する', () => {
     expect(formatDate('2026-10-31T15:30:00.000Z')).toBe('2026-11-01');
   });

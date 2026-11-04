@@ -242,6 +242,62 @@ test('公開側と管理画面でライトとダークを切り替えられ、�
   await context.close();
 });
 
+test('公開側のトップを作成日と更新日で並べ替えられ、選んだ並びは再読み込みしても残る', async ({
+  browser,
+}) => {
+  // sort-a を後から更新し、作成日と更新日で順番が入れ替わるようにする
+  for (const name of ['sort-a', 'sort-b', 'sort-a']) {
+    await publishZip(alicePage, name, [{ name: 'index.html', data: `<title>${name}</title>` }]);
+    await expect(alicePage.locator('#status')).toContainText(`/${name}/`);
+  }
+
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(devState().publicOrigin);
+  const button = page.getByRole('button', { name: '並び順' });
+  const menu = page.getByRole('menu', { name: '並び順' });
+  const current = page.locator('#sort-label');
+  const choose = async (label: string) => {
+    await button.click();
+    await menu.getByRole('menuitemradio', { name: label }).click();
+    await expect(menu).toBeHidden();
+    await expect(current).toHaveText(label);
+  };
+  const order = () =>
+    page
+      .locator('a.card')
+      .evaluateAll((cards) =>
+        cards.map((card) => card.getAttribute('href')).filter((href) => href?.startsWith('/sort-')),
+      );
+
+  await expect(current).toHaveText('更新日が新しい順');
+  await expect.poll(order).toEqual(['/sort-a/', '/sort-b/']);
+  await choose('作成日が新しい順');
+  await expect.poll(order).toEqual(['/sort-b/', '/sort-a/']);
+  await expect(page.locator('a.card[href="/sort-a/"] .created')).toBeVisible();
+  await expect(page.locator('a.card[href="/sort-a/"] .updated')).toBeHidden();
+  await choose('作成日が古い順');
+  await expect.poll(order).toEqual(['/sort-a/', '/sort-b/']);
+
+  await page.reload();
+  await expect(current).toHaveText('作成日が古い順');
+  await expect.poll(order).toEqual(['/sort-a/', '/sort-b/']);
+
+  // キーボードでも選べ、Escape で閉じる
+  await button.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(menu.getByRole('menuitemradio', { name: '作成日が古い順' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(button).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(current).toHaveText('更新日が新しい順');
+  await expect.poll(order).toEqual(['/sort-a/', '/sort-b/']);
+  await context.close();
+});
+
 test('他の人のページ名では公開できず、削除ボタンも出ない', async () => {
   await bobPage.reload();
   await publishZip(bobPage, 'cats', [{ name: 'index.html', data: '乗っ取り' }]);
