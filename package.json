@@ -16,7 +16,8 @@
     "test:e2e": "playwright test",
     "synth": "cdk synth --quiet",
     "dev": "tsx scripts/dev-server.ts",
-    "bootstrap-admin": "tsx scripts/bootstrap-admin.ts"
+    "bootstrap-admin": "tsx scripts/bootstrap-admin.ts",
+    "refresh-site": "tsx scripts/refresh-site.ts"
   },
   "dependencies": {
     "@aws-sdk/client-cloudfront": "3.1161.0",

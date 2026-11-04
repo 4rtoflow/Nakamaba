@@ -23,6 +23,8 @@ const PARAMETER_PREFIX = '/nakamaba';
 export interface NakamabaStackProps extends StackProps {
   /** Lambda の同時実行数の上限。undefined なら設定しない。 */
   reservedConcurrency?: number | undefined;
+  /** main への push でデプロイする GitHub のリポジトリ（owner/name）。undefined なら CD のロールを作らない。 */
+  githubRepository?: string | undefined;
 }
 
 export class NakamabaStack extends Stack {
@@ -143,14 +145,13 @@ export class NakamabaStack extends Stack {
     siteBucket.grantDelete(app);
     uploadBucket.grantReadWrite(app);
     uploadBucket.grantDelete(app);
-    app.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ['cloudfront:CreateInvalidation'],
-        resources: [
-          `arn:${Aws.PARTITION}:cloudfront::${Aws.ACCOUNT_ID}:distribution/${distribution.distributionId}`,
-        ],
-      }),
-    );
+    const invalidation = new iam.PolicyStatement({
+      actions: ['cloudfront:CreateInvalidation'],
+      resources: [
+        `arn:${Aws.PARTITION}:cloudfront::${Aws.ACCOUNT_ID}:distribution/${distribution.distributionId}`,
+      ],
+    });
+    app.addToRolePolicy(invalidation);
     app.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['ssm:GetParameter', 'ssm:PutParameter', 'ssm:DeleteParameter'],
@@ -168,5 +169,36 @@ export class NakamabaStack extends Stack {
     new CfnOutput(this, 'PagesTableName', { value: pagesTable.tableName });
     new CfnOutput(this, 'SiteBucketName', { value: siteBucket.bucketName });
     new CfnOutput(this, 'ParameterPrefix', { value: PARAMETER_PREFIX });
+    new CfnOutput(this, 'DistributionId', { value: distribution.distributionId });
+
+    if (props.githubRepository) {
+      const github = new iam.OidcProviderNative(this, 'GitHubOidc', {
+        url: 'https://token.actions.githubusercontent.com',
+        clientIds: ['sts.amazonaws.com'],
+      });
+      const deployRole = new iam.Role(this, 'GitHubDeployRole', {
+        assumedBy: new iam.WebIdentityPrincipal(github.oidcProviderArn, {
+          StringEquals: {
+            'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+            'token.actions.githubusercontent.com:sub': `repo:${props.githubRepository}:ref:refs/heads/main`,
+          },
+        }),
+        maxSessionDuration: Duration.hours(1),
+      });
+      // デプロイは cdk bootstrap が作ったロールを借りて行う
+      deployRole.addToPolicy(
+        new iam.PolicyStatement({
+          actions: ['sts:AssumeRole'],
+          resources: [
+            `arn:${Aws.PARTITION}:iam::${Aws.ACCOUNT_ID}:role/cdk-hnb659fds-*-${Aws.ACCOUNT_ID}-${Aws.REGION}`,
+          ],
+        }),
+      );
+      // デプロイの後に、公開側のトップと 404 を新しいコードで置き直す
+      pagesTable.grantReadData(deployRole);
+      siteBucket.grantPut(deployRole);
+      deployRole.addToPolicy(invalidation);
+      new CfnOutput(this, 'GitHubDeployRoleArn', { value: deployRole.roleArn });
+    }
   }
 }

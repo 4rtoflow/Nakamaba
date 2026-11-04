@@ -6,9 +6,10 @@ on:
 permissions:
   contents: read
 
+# main ではデプロイを途中で止めないよう、前の実行の終わりを待つ
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   check:
@@ -66,3 +67,36 @@ jobs:
           echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" | sha256sum --check
           tar -xzf gitleaks.tar.gz gitleaks
       - run: ./gitleaks git --redact --no-banner --verbose --config .gitleaks.toml
+
+  deploy:
+    name: デプロイ
+    if: github.ref == 'refs/heads/main'
+    needs: [check, integration, secrets]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-northeast-1
+          mask-aws-account-id: true
+      # 公開リポジトリのログは誰でも読めるので、URL やリソース名を含む CDK の出力は失敗したときだけ出す
+      - name: CDK でデプロイする
+        run: |
+          npx cdk deploy --require-approval never -c reservedConcurrency=none --outputs-file cdk-outputs.json > deploy.log 2>&1 || { cat deploy.log; exit 1; }
+          echo "デプロイしました。"
+      - name: 公開側のトップと 404 を置き直す
+        run: |
+          PAGES_TABLE=$(jq -r .Nakamaba.PagesTableName cdk-outputs.json) \
+          SITE_BUCKET=$(jq -r .Nakamaba.SiteBucketName cdk-outputs.json) \
+          DISTRIBUTION_ID=$(jq -r .Nakamaba.DistributionId cdk-outputs.json) \
+          npm run refresh-site

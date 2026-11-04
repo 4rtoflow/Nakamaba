@@ -5,16 +5,20 @@ import { NakamabaStack } from '../../infra/stack.ts';
 
 let template: Template;
 
-function synth(reservedConcurrency: number | undefined): Template {
+function synth(
+  reservedConcurrency: number | undefined,
+  githubRepository: string | undefined,
+): Template {
   const stack = new NakamabaStack(new App(), 'Test', {
     env: { region: 'ap-northeast-1', account: '111111111111' },
     reservedConcurrency,
+    githubRepository,
   });
   return Template.fromStack(stack);
 }
 
 beforeAll(() => {
-  template = synth(5);
+  template = synth(5, 'owner/repo');
 });
 
 function policyStatements(): Array<{ Action: string | string[]; Resource: unknown }> {
@@ -147,7 +151,7 @@ describe('Lambda', () => {
   });
 
   it('上限は外せる', () => {
-    const functions = synth(undefined).findResources('AWS::Lambda::Function');
+    const functions = synth(undefined, 'owner/repo').findResources('AWS::Lambda::Function');
     for (const fn of Object.values(functions)) {
       expect(fn.Properties.ReservedConcurrentExecutions).toBeUndefined();
     }
@@ -170,16 +174,52 @@ describe('IAM', () => {
   });
 
   it('invalidation はこの配信だけに限る', () => {
-    const [statement] = policyStatements().filter((item) =>
+    const statements = policyStatements().filter((item) =>
       actions(item).includes('cloudfront:CreateInvalidation'),
     );
-    expect(statement).toBeDefined();
-    expect(JSON.stringify(statement?.Resource)).toContain('distribution/');
-    expect(statement?.Resource).not.toBe('*');
+    expect(statements.length).toBeGreaterThan(0);
+    for (const statement of statements) {
+      expect(JSON.stringify(statement.Resource)).toContain('distribution/');
+      expect(statement.Resource).not.toBe('*');
+    }
   });
 
   it('全リソースへの権限を与えない', () => {
     expect(policyStatements().filter((statement) => statement.Resource === '*')).toEqual([]);
+  });
+});
+
+describe('CD', () => {
+  it('デプロイのロールは、指定したリポジトリの main の GitHub Actions からだけ借りられる', () => {
+    template.hasResourceProperties('AWS::IAM::Role', {
+      AssumeRolePolicyDocument: {
+        Statement: [
+          Match.objectLike({
+            Action: 'sts:AssumeRoleWithWebIdentity',
+            Condition: {
+              StringEquals: {
+                'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+                'token.actions.githubusercontent.com:sub': 'repo:owner/repo:ref:refs/heads/main',
+              },
+            },
+          }),
+        ],
+      },
+    });
+  });
+
+  it('デプロイのロールが借りられるのは cdk bootstrap のロールだけ', () => {
+    const statements = policyStatements().filter((item) =>
+      actions(item).includes('sts:AssumeRole'),
+    );
+    expect(statements).toHaveLength(1);
+    expect(JSON.stringify(statements[0]?.Resource)).toContain(':role/cdk-hnb659fds-*-');
+  });
+
+  it('リポジトリを指定しなければ、OIDC とデプロイのロールを作らない', () => {
+    const without = synth(5, undefined);
+    without.resourceCountIs('AWS::IAM::OIDCProvider', 0);
+    expect(Object.keys(without.findOutputs('*'))).not.toContain('GitHubDeployRoleArn');
   });
 });
 
