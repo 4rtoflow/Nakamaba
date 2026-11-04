@@ -11,5 +11,6 @@ const reservedConcurrency = context === 'none' ? undefined : Number(context ?? 5
 new NakamabaStack(app, 'Nakamaba', {
   env: { region: 'ap-northeast-1', account: process.env.CDK_DEFAULT_ACCOUNT },
   reservedConcurrency,
-  githubRepository: '4rtoflow/Nakamaba',
+  // リポジトリで immutable subject が有効なので、OIDC の sub は owner と name に ID が付く
+  githubRepository: '4rtoflow@338377614/Nakamaba@1441059409',
 });

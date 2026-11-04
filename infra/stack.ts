@@ -23,7 +23,7 @@ const PARAMETER_PREFIX = '/nakamaba';
 export interface NakamabaStackProps extends StackProps {
   /** Lambda の同時実行数の上限。undefined なら設定しない。 */
   reservedConcurrency?: number | undefined;
-  /** main への push でデプロイする GitHub のリポジトリ（owner/name）。undefined なら CD のロールを作らない。 */
+  /** main への push でデプロイする GitHub のリポジトリ。OIDC の sub の `repo:` に続く表記。undefined なら CD のロールを作らない。 */
   githubRepository?: string | undefined;
 }
 
