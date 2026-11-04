@@ -1,0 +1,14 @@
+{
+  "name": "nakamaba",
+  "description": "HTML や Markdown を公開する身内向けの静的ホスティング Nakamaba のプラグイン",
+  "owner": {
+    "name": "4rtoflow"
+  },
+  "plugins": [
+    {
+      "name": "nakamaba",
+      "source": "./plugins/nakamaba",
+      "description": "Nakamaba に載せるページを作り、AI エージェントから公開・更新する"
+    }
+  ]
+}
