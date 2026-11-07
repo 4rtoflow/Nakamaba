@@ -17,6 +17,9 @@ const SKIPPED_DIRS = new Set(['node_modules']);
 const MAX_FILES = 1000;
 const MAX_UNZIPPED_BYTES = 200 * 1024 * 1024;
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+// 本人が login を実行できない環境（AI エージェントのサンドボックスなど）で、資格情報のファイルの代わりに使う
+const AUTHORIZATION_ENV = 'NAKAMABA_AUTHORIZATION';
+const ADMIN_URL_ENV = 'NAKAMABA_ADMIN_URL';
 
 class CliError extends Error {}
 class ConnectionError extends CliError {}
@@ -46,7 +49,27 @@ function formatBytes(bytes) {
   return `${Number(value.toFixed(1))} ${units[unit]}`;
 }
 
+/**
+ * 管理画面への認証。環境変数 NAKAMABA_AUTHORIZATION があれば、その値をそのまま Authorization ヘッダーに使い、
+ * 管理画面の URL は NAKAMABA_ADMIN_URL から読む。秘密を預かる仕組み（Claude Managed Agents の vault など）は、
+ * 本物の値をサンドボックスに入れず、外へ送るときにヘッダーの中の値を差し替えるので、値を組み立て直さない。
+ * 無ければ、login で保存したファイルを使う
+ */
 async function readCredentials() {
+  const authorization = process.env[AUTHORIZATION_ENV];
+  if (authorization) {
+    const adminUrl = process.env[ADMIN_URL_ENV];
+    if (!adminUrl) {
+      throw new CliError(
+        `環境変数 ${AUTHORIZATION_ENV} を使うときは、管理画面の URL を環境変数 ${ADMIN_URL_ENV} で指定してください。`,
+      );
+    }
+    return { adminUrl: adminOrigin(adminUrl), authorization, username: null, fromEnv: true };
+  }
+  return readSavedCredentials();
+}
+
+async function readSavedCredentials() {
   let text;
   try {
     text = await readFile(credentialsPath(), 'utf8');
@@ -57,7 +80,12 @@ async function readCredentials() {
   try {
     const value = JSON.parse(text);
     if ([value.adminUrl, value.username, value.password].every((v) => typeof v === 'string')) {
-      return value;
+      return {
+        adminUrl: value.adminUrl,
+        authorization: basicAuthorization(value.username, value.password),
+        username: value.username,
+        fromEnv: false,
+      };
     }
   } catch {
     // 下で同じエラーにする
@@ -65,14 +93,17 @@ async function readCredentials() {
   throw askLogin(`${credentialsPath()} の形式が正しくありません。`);
 }
 
+function basicAuthorization(username, password) {
+  return `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+}
+
 async function request(credentials, method, path, body) {
-  const token = Buffer.from(`${credentials.username}:${credentials.password}`).toString('base64');
   let response;
   try {
     response = await fetch(`${credentials.adminUrl}${path}`, {
       method,
       headers: {
-        authorization: `Basic ${token}`,
+        authorization: credentials.authorization,
         ...(body === undefined ? {} : { 'content-type': 'application/json' }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -96,6 +127,11 @@ async function api(credentials, method, path, body) {
   try {
     response = await request(credentials, method, path, body);
   } catch (error) {
+    if (error instanceof ConnectionError && credentials.fromEnv) {
+      throw new CliError(
+        `${error.message}\nネットワークと、環境変数 ${ADMIN_URL_ENV} の URL を確かめてください。`,
+      );
+    }
     // 保存した URL が古い（開発サーバーのままなど）こともあるので、login のやり直しも示す
     if (error instanceof ConnectionError) {
       throw askLogin(
@@ -103,6 +139,11 @@ async function api(credentials, method, path, body) {
       );
     }
     throw error;
+  }
+  if (response.status === 401 && credentials.fromEnv) {
+    throw new CliError(
+      `環境変数 ${AUTHORIZATION_ENV} の値では、ログインできませんでした。値が正しいかを、本人に確かめてもらってください。`,
+    );
   }
   if (response.status === 401) throw askLogin('ユーザー名かパスワードが違います。');
   if (!response.ok) {
@@ -308,9 +349,11 @@ async function publish(args) {
 
 async function list() {
   const credentials = await readCredentials();
+  // 環境変数の値からは、ユーザー名が分からないので、管理画面に聞く
+  const username = credentials.username ?? (await api(credentials, 'GET', '/api/me')).name;
   const { pages, usage } = await api(credentials, 'GET', '/api/pages');
   console.log(
-    `${credentials.username} の使用量: ${formatBytes(usage.usedBytes)} / ${formatBytes(usage.maxBytes)}`,
+    `${username} の使用量: ${formatBytes(usage.usedBytes)} / ${formatBytes(usage.maxBytes)}`,
   );
   for (const page of pages) {
     const mine = page.canModify ? '' : '（更新できない）';
@@ -574,7 +617,14 @@ async function login() {
     io.close();
   }
 
-  const response = await request(credentials, 'GET', '/api/me');
+  const response = await request(
+    {
+      adminUrl: credentials.adminUrl,
+      authorization: basicAuthorization(credentials.username, credentials.password),
+    },
+    'GET',
+    '/api/me',
+  );
   if (response.status === 401) {
     throw new CliError('ユーザー名かパスワードが違います。保存していません。');
   }
@@ -596,7 +646,11 @@ const USAGE = `使い方:
   node nakamaba.mjs publish [フォルダ] [--name <ページ名>] [--overwrite]
                                              フォルダを公開する。2 回目からは nakamaba.json のページ名を更新する
   node nakamaba.mjs preview [フォルダ] [--name <ページ名>] [--port <番号>]
-                                             公開の前に、手元で公開後と同じ URL の形で開く。何も送らない`;
+                                             公開の前に、手元で公開後と同じ URL の形で開く。何も送らない
+
+環境変数 NAKAMABA_AUTHORIZATION があると、login で保存したファイルの代わりに、その値（「Basic …」）を
+管理画面への認証に使う（AI エージェントのサンドボックスなど、本人が login を実行できない環境向け）。
+このときは、管理画面の URL を NAKAMABA_ADMIN_URL で指定する。`;
 
 const COMMANDS = { login, list, publish, preview };
 
