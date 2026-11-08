@@ -72,6 +72,22 @@
         <div id="pages" class="rows"></div>
       </section>
 
+      <section class="panel" aria-labelledby="tokens-heading">
+        <h2 id="tokens-heading">エージェント用のトークン</h2>
+        <p class="hint">
+          AI エージェントが、あなたの名前でページを公開・更新するためのトークンです。トークンでは、ページの削除とユーザーの管理はできません。90 日使われなかったトークンは使えなくなります。
+        </p>
+        <form id="token-form" class="form inline">
+          <label>
+            <span>名前（何に使うか）</span>
+            <input id="token-label" name="label" required maxlength="50" placeholder="例: Bobert" autocomplete="off" />
+          </label>
+          <button class="primary" type="submit" id="token-button">発行する</button>
+        </form>
+        <div id="token-issued" class="issued" hidden></div>
+        <div id="tokens" class="rows"></div>
+      </section>
+
       <section class="panel" id="users-panel" aria-labelledby="users-heading" hidden>
         <h2 id="users-heading">ユーザー</h2>
         <form id="user-form" class="form inline">

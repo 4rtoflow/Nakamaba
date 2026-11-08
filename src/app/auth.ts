@@ -1,6 +1,7 @@
-import type { User, UserStore } from './deps.ts';
+import type { AgentToken, Deps, User } from './deps.ts';
 import { HttpError } from './http.ts';
 import { hashPassword, verifyPassword } from './passwords.ts';
+import { verifyToken } from './tokens.ts';
 
 export interface BasicCredentials {
   username: string;
@@ -28,13 +29,34 @@ function unauthorized(): HttpError {
   });
 }
 
-export async function authenticate(header: string | undefined, users: UserStore): Promise<User> {
+/** 認証した人。token はエージェント用のトークンで認証したときのトークンで、パスワードなら null */
+export interface Principal {
+  user: User;
+  token: AgentToken | null;
+}
+
+/** `Bearer <トークン>` のトークンを取り出す。Bearer でなければ null */
+export function parseBearer(header: string | undefined): string | null {
+  if (!header) return null;
+  return /^bearer\s+(\S+)\s*$/i.exec(header)?.[1] ?? null;
+}
+
+export async function authenticate(
+  header: string | undefined,
+  deps: Pick<Deps, 'users' | 'tokens' | 'now'>,
+): Promise<Principal> {
+  const bearer = parseBearer(header);
+  if (bearer !== null) {
+    const verified = await verifyToken(deps, bearer);
+    if (!verified) throw unauthorized();
+    return verified;
+  }
   const credentials = parseBasicAuth(header);
   if (!credentials) throw unauthorized();
-  const user = await users.get(credentials.username);
+  const user = await deps.users.get(credentials.username);
   const matches = verifyPassword(credentials.password, user?.passwordHash ?? NO_USER_HASH);
   if (!user || !matches) throw unauthorized();
-  return user;
+  return { user, token: null };
 }
 
 export function assertAdmin(user: User): void {

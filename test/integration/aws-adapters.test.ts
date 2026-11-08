@@ -10,10 +10,11 @@ import {
   createPageStore,
   createSecrets,
   createSiteFiles,
+  createTokenStore,
   createUploads,
   createUserStore,
 } from '../../src/app/aws.ts';
-import type { PageClaim, User } from '../../src/app/deps.ts';
+import type { AgentToken, PageClaim, User } from '../../src/app/deps.ts';
 import { provisionLocalAws } from '../support/local-aws.ts';
 
 let config: AwsConfig;
@@ -82,7 +83,19 @@ describe('PageStore（DynamoDB の条件付き書き込み）', () => {
     title: 'タイトル',
     hasThumbnail: false,
     now: '2026-11-01T00:00:00.000Z',
+    tokenLabel: null,
     ...overrides,
+  });
+
+  it('トークンで更新するとトークンの名前を残し、パスワードで更新すると消す', async () => {
+    const store = createPageStore(documents, config.pagesTable);
+    const result = await store.claim(claim({ name: 'by-token', tokenLabel: 'Bobert' }));
+    expect(result).toMatchObject({ claimed: true, page: { updatedWithToken: 'Bobert' } });
+    await expect(store.get('by-token')).resolves.toMatchObject({ updatedWithToken: 'Bobert' });
+
+    const again = await store.claim(claim({ name: 'by-token', now: '2026-12-01T00:00:00.000Z' }));
+    expect(again.claimed && again.page).not.toHaveProperty('updatedWithToken');
+    expect(await store.get('by-token')).not.toHaveProperty('updatedWithToken');
   });
 
   it('新規なら isNew で、公開した人と作成日を記録する', async () => {
@@ -161,6 +174,46 @@ describe('PageStore（DynamoDB の条件付き書き込み）', () => {
     await store.claim(claim({ name: 'gone' }));
     await store.delete('gone');
     await expect(store.get('gone')).resolves.toBeNull();
+  });
+});
+
+describe('TokenStore（DynamoDB）', () => {
+  const token = (hash: string): AgentToken => ({
+    hash,
+    id: hash.slice(0, 16),
+    owner: 'alice',
+    label: 'Bobert',
+    createdAt: '2026-11-01T00:00:00.000Z',
+  });
+
+  it('作成・取得・一覧・削除ができ、余分な属性を足さない', async () => {
+    const store = createTokenStore(documents, config.tokensTable);
+    const hash = 'a'.repeat(64);
+    await store.create(token(hash));
+    await expect(store.get(hash)).resolves.toEqual(token(hash));
+    expect((await store.list()).map((item) => item.hash)).toContain(hash);
+    await store.delete(hash);
+    await expect(store.get(hash)).resolves.toBeNull();
+  });
+
+  it('同じハッシュでは作らない', async () => {
+    const store = createTokenStore(documents, config.tokensTable);
+    const hash = 'b'.repeat(64);
+    await store.create(token(hash));
+    await expect(store.create({ ...token(hash), owner: 'bob' })).rejects.toThrow();
+    expect((await store.get(hash))?.owner).toBe('alice');
+  });
+
+  it('最後に使った日時を書く。取り消したトークンは書き戻さない', async () => {
+    const store = createTokenStore(documents, config.tokensTable);
+    const hash = 'c'.repeat(64);
+    await store.create(token(hash));
+    await store.touch(hash, '2026-11-02T00:00:00.000Z');
+    expect((await store.get(hash))?.lastUsedAt).toBe('2026-11-02T00:00:00.000Z');
+
+    await store.delete(hash);
+    await store.touch(hash, '2026-11-03T00:00:00.000Z');
+    await expect(store.get(hash)).resolves.toBeNull();
   });
 });
 

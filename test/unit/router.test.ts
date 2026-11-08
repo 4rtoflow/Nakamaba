@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { toAppRequest } from '../../src/app/handler.ts';
 import type { AppRequest, AppResponse } from '../../src/app/http.ts';
 import { handleRequest } from '../../src/app/router.ts';
-import { basicHeader, createFakeWorld, type FakeWorld, TEST_UPLOAD_ID } from '../support/fakes.ts';
+import {
+  basicHeader,
+  bearerHeader,
+  createFakeWorld,
+  type FakeWorld,
+  TEST_UPLOAD_ID,
+} from '../support/fakes.ts';
 import { buildZip } from '../support/zip-builder.ts';
 
 let world: FakeWorld;
@@ -127,6 +133,9 @@ describe('認証', () => {
     ['DELETE', '/api/pages/p'],
     ['PUT', '/api/users/x'],
     ['DELETE', '/api/users/x'],
+    ['GET', '/api/tokens'],
+    ['PUT', '/api/tokens'],
+    ['DELETE', '/api/tokens/x'],
     ['GET', '/api/unknown'],
     ['GET', '/unknown'],
   ])('%s %s は認証情報なしだと 401 にする', async (method, path) => {
@@ -385,6 +394,129 @@ describe('ユーザーの API', () => {
     ['GET', '/api/users/x/password/y', 404],
   ])('%s %s は %i にする', async (method, path, status) => {
     expect((await send(method, path, { as: 'root' })).status).toBe(status);
+  });
+});
+
+describe('エージェント用のトークン', () => {
+  const withToken = (token: string, body?: unknown) => ({
+    as: null,
+    body,
+    headers: { authorization: bearerHeader(token) },
+  });
+
+  it('パスワードで発行・一覧・取り消しができ、一覧には本物の値もハッシュも含めない', async () => {
+    const issued = await send('PUT', '/api/tokens', { body: { label: 'Bobert' } });
+    expect(issued.status).toBe(201);
+    const { token, id } = bodyOf(issued);
+    expect(token).toMatch(/^nkmb_[A-Za-z0-9_-]{43}$/);
+
+    const listed = await send('GET', '/api/tokens');
+    expect(bodyOf(listed).tokens).toEqual([
+      {
+        id,
+        owner: 'alice',
+        label: 'Bobert',
+        createdAt: expect.any(String),
+        lastUsedAt: null,
+        active: true,
+      },
+    ]);
+    expect(listed.body).not.toContain(token);
+
+    expect((await send('DELETE', `/api/tokens/${id}`)).status).toBe(200);
+    expect(bodyOf(await send('GET', '/api/tokens')).tokens).toEqual([]);
+    expect((await send('GET', '/api/me', withToken(token))).status).toBe(401);
+  });
+
+  it('トークンで、一覧・自分の情報・公開・更新ができ、ページにトークンの名前が残る', async () => {
+    const token = await world.addToken('alice', 'Bobert');
+    expect(bodyOf(await send('GET', '/api/me', withToken(token))).name).toBe('alice');
+    expect((await send('PUT', '/api/pages/p/upload', withToken(token))).status).toBe(200);
+
+    seedUpload('alice', 'p');
+    const published = await send(
+      'PUT',
+      '/api/pages/p',
+      withToken(token, { uploadId: TEST_UPLOAD_ID }),
+    );
+    expect(published.status).toBe(201);
+    expect(world.pages.get('p')).toMatchObject({ owner: 'alice', updatedWithToken: 'Bobert' });
+
+    const listed = bodyOf(await send('GET', '/api/pages', withToken(token)));
+    expect(listed.pages[0]).toMatchObject({ name: 'p', updatedWithToken: 'Bobert' });
+  });
+
+  it.each([
+    ['DELETE', '/api/pages/p'],
+    ['GET', '/api/users'],
+    ['GET', '/api/users/bob/password'],
+    ['PUT', '/api/users/bob/password'],
+    ['PUT', '/api/users/mallory'],
+    ['DELETE', '/api/users/bob'],
+    ['GET', '/api/tokens'],
+    ['PUT', '/api/tokens'],
+    ['DELETE', '/api/tokens/x'],
+    ['PUT', '/api/pages/p/unknown'],
+    ['GET', '/api/unknown'],
+  ])('トークンでは %s %s を 403 にし、何も変えない', async (method, path) => {
+    await publish('root', 'p');
+    const token = await world.addToken('root');
+    const before = JSON.stringify([...world.users.values(), ...world.pages.values()]);
+    const tokensBefore = world.tokens.size;
+
+    const response = await send(method, path, withToken(token, { label: 'x' }));
+    expect(response.status).toBe(403);
+    expect(bodyOf(response).message).toBe('この操作は、エージェント用のトークンではできません。');
+    expect(JSON.stringify([...world.users.values(), ...world.pages.values()])).toBe(before);
+    expect(world.tokens.size).toBe(tokensBefore);
+    expect(response.body).not.toContain('password');
+  });
+
+  it('Admin のトークンも、ほかの人のページは上書きできない', async () => {
+    await publish('alice', 'cats');
+    const token = await world.addToken('root');
+    expect(bodyOf(await send('GET', '/api/me', withToken(token))).role).toBe('member');
+    const listed = bodyOf(await send('GET', '/api/pages', withToken(token)));
+    expect(listed.pages.find((page: { name: string }) => page.name === 'cats').canModify).toBe(
+      false,
+    );
+
+    seedUpload('root', 'cats', '奪う');
+    const response = await send(
+      'PUT',
+      '/api/pages/cats',
+      withToken(token, { uploadId: TEST_UPLOAD_ID }),
+    );
+    expect(response.status).toBe(409);
+    expect(world.pages.get('cats')?.title).toBe('タイトル');
+  });
+
+  it('パスワードを再発行すると、そのユーザーのトークンは使えなくなる', async () => {
+    const token = await world.addToken('alice');
+    const bobToken = await world.addToken('bob');
+    await send('PUT', '/api/users/alice/password', { as: 'root' });
+    expect((await send('GET', '/api/me', withToken(token))).status).toBe(401);
+    expect((await send('GET', '/api/me', withToken(bobToken))).status).toBe(200);
+  });
+
+  it('ユーザーを削除すると、そのユーザーのトークンも消える', async () => {
+    await world.addToken('bob');
+    await send('DELETE', '/api/users/bob', { as: 'root' });
+    expect([...world.tokens.values()].filter((token) => token.owner === 'bob')).toEqual([]);
+  });
+
+  it('メンバーには自分のトークンだけを、Admin には全員のトークンを見せる', async () => {
+    await world.addToken('alice', 'alice の');
+    await world.addToken('bob', 'bob の');
+    const own = bodyOf(await send('GET', '/api/tokens', { as: 'bob' })).tokens;
+    expect(own.map((token: { label: string }) => token.label)).toEqual(['bob の']);
+    const all = bodyOf(await send('GET', '/api/tokens', { as: 'root' })).tokens;
+    expect(all).toHaveLength(2);
+  });
+
+  it('メソッドが違えば 405 にする', async () => {
+    expect((await send('DELETE', '/api/tokens')).status).toBe(405);
+    expect((await send('GET', '/api/tokens/x')).status).toBe(405);
   });
 });
 

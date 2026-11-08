@@ -14,6 +14,22 @@ export interface Page {
   hasThumbnail: boolean;
   createdAt: string;
   updatedAt: string;
+  /** 最後の公開・更新に使ったエージェント用のトークンの名前。パスワードで公開・更新したときは無い */
+  updatedWithToken?: string;
+}
+
+/** エージェント用のトークン。本物の値は保存せず、ハッシュだけを持つ */
+export interface AgentToken {
+  /** トークンの SHA-256（16 進）。表のキー */
+  hash: string;
+  /** 一覧と取り消しで指す ID（ハッシュの先頭） */
+  id: string;
+  owner: string;
+  /** 何に使うかを本人が書いた名前 */
+  label: string;
+  createdAt: string;
+  /** 最後に認証に使った日時。書き込みを減らすため、1 日に 1 回まで更新する */
+  lastUsedAt?: string;
 }
 
 export interface UserStore {
@@ -34,6 +50,8 @@ export interface PageClaim {
   title: string;
   hasThumbnail: boolean;
   now: string;
+  /** トークンで公開・更新するときのトークンの名前。パスワードなら null */
+  tokenLabel: string | null;
 }
 
 export type PageClaimResult = { claimed: false } | { claimed: true; page: Page; isNew: boolean };
@@ -44,6 +62,16 @@ export interface PageStore {
   /** 同じ名前の同時公開でも 1 人だけが通るよう、条件付きで書き込む */
   claim(claim: PageClaim): Promise<PageClaimResult>;
   delete(name: string): Promise<void>;
+}
+
+export interface TokenStore {
+  /** 取り消されていなければ、トークンを返す。無ければ null */
+  get(hash: string): Promise<AgentToken | null>;
+  list(): Promise<AgentToken[]>;
+  create(token: AgentToken): Promise<void>;
+  /** 最後に使った日時を書く。取り消されていれば何もしない */
+  touch(hash: string, lastUsedAt: string): Promise<void>;
+  delete(hash: string): Promise<void>;
 }
 
 export interface OutputFile {
@@ -116,6 +144,7 @@ export const DEFAULT_LIMITS: Limits = {
 export interface Deps {
   users: UserStore;
   pages: PageStore;
+  tokens: TokenStore;
   siteFiles: SiteFiles;
   uploads: Uploads;
   cdn: Cdn;

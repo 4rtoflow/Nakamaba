@@ -27,6 +27,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import {
+  type AgentToken,
   type Cdn,
   DEFAULT_LIMITS,
   type Deps,
@@ -35,6 +36,7 @@ import {
   type PageStore,
   type Secrets,
   type SiteFiles,
+  type TokenStore,
   type Uploads,
   type User,
   type UserStore,
@@ -44,6 +46,7 @@ import { createDiscordNotifier } from './discord.ts';
 export interface AwsConfig {
   usersTable: string;
   pagesTable: string;
+  tokensTable: string;
   siteBucket: string;
   uploadBucket: string;
   distributionId: string;
@@ -64,6 +67,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv): AwsConfig {
   return {
     usersTable: requireEnv(env, 'USERS_TABLE'),
     pagesTable: requireEnv(env, 'PAGES_TABLE'),
+    tokensTable: requireEnv(env, 'TOKENS_TABLE'),
     siteBucket: requireEnv(env, 'SITE_BUCKET'),
     uploadBucket: requireEnv(env, 'UPLOAD_BUCKET'),
     distributionId: requireEnv(env, 'DISTRIBUTION_ID'),
@@ -147,8 +151,8 @@ export function createPageStore(documents: DynamoDBDocumentClient, tableName: st
           new UpdateCommand({
             TableName: tableName,
             Key: { name: claim.name },
-            UpdateExpression:
-              'SET #owner = if_not_exists(#owner, :actor), createdAt = if_not_exists(createdAt, :now), title = :title, hasThumbnail = :thumbnail, updatedAt = :now',
+            // パスワードで公開・更新したら、前にトークンで更新した記録を消す
+            UpdateExpression: `SET #owner = if_not_exists(#owner, :actor), createdAt = if_not_exists(createdAt, :now), title = :title, hasThumbnail = :thumbnail, updatedAt = :now${claim.tokenLabel === null ? ' REMOVE updatedWithToken' : ', updatedWithToken = :token'}`,
             ...(claim.overrideOwner
               ? {}
               : { ConditionExpression: 'attribute_not_exists(#owner) OR #owner = :actor' }),
@@ -158,6 +162,7 @@ export function createPageStore(documents: DynamoDBDocumentClient, tableName: st
               ':now': claim.now,
               ':title': claim.title,
               ':thumbnail': claim.hasThumbnail,
+              ...(claim.tokenLabel === null ? {} : { ':token': claim.tokenLabel }),
             },
             ReturnValues: 'ALL_OLD',
           }),
@@ -173,6 +178,7 @@ export function createPageStore(documents: DynamoDBDocumentClient, tableName: st
             hasThumbnail: claim.hasThumbnail,
             createdAt: previous?.createdAt ?? claim.now,
             updatedAt: claim.now,
+            ...(claim.tokenLabel === null ? {} : { updatedWithToken: claim.tokenLabel }),
           },
         };
       } catch (error) {
@@ -182,6 +188,49 @@ export function createPageStore(documents: DynamoDBDocumentClient, tableName: st
     },
     async delete(name) {
       await documents.send(new DeleteCommand({ TableName: tableName, Key: { name } }));
+    },
+  };
+}
+
+export function createTokenStore(documents: DynamoDBDocumentClient, tableName: string): TokenStore {
+  return {
+    async get(hash) {
+      // 取り消した直後のトークンを通さないよう、強い整合性で読む
+      const result = await documents.send(
+        new GetCommand({ TableName: tableName, Key: { hash }, ConsistentRead: true }),
+      );
+      return (result.Item as AgentToken | undefined) ?? null;
+    },
+    list: () => scanAll<AgentToken>(documents, tableName),
+    async create(token) {
+      await documents.send(
+        new PutCommand({
+          TableName: tableName,
+          Item: token,
+          ConditionExpression: 'attribute_not_exists(#hash)',
+          ExpressionAttributeNames: { '#hash': 'hash' },
+        }),
+      );
+    },
+    async touch(hash, lastUsedAt) {
+      try {
+        await documents.send(
+          new UpdateCommand({
+            TableName: tableName,
+            Key: { hash },
+            UpdateExpression: 'SET lastUsedAt = :now',
+            // 取り消したトークンを書き戻さない
+            ConditionExpression: 'attribute_exists(#hash)',
+            ExpressionAttributeNames: { '#hash': 'hash' },
+            ExpressionAttributeValues: { ':now': lastUsedAt },
+          }),
+        );
+      } catch (error) {
+        if (!(error instanceof ConditionalCheckFailedException)) throw error;
+      }
+    },
+    async delete(hash) {
+      await documents.send(new DeleteCommand({ TableName: tableName, Key: { hash } }));
     },
   };
 }
@@ -339,6 +388,7 @@ export function createAwsDeps(config: AwsConfig, overrides: Partial<Deps> = {}):
   return {
     users: createUserStore(documents, config.usersTable),
     pages: createPageStore(documents, config.pagesTable),
+    tokens: createTokenStore(documents, config.tokensTable),
     siteFiles: createSiteFiles(s3, config.siteBucket),
     uploads: createUploads(s3, config.uploadBucket),
     cdn: createCdn(cloudFront, config.distributionId, randomUUID),

@@ -17,7 +17,10 @@ const SKIPPED_DIRS = new Set(['node_modules']);
 const MAX_FILES = 1000;
 const MAX_UNZIPPED_BYTES = 200 * 1024 * 1024;
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
-// 本人が login を実行できない環境（AI エージェントのサンドボックスなど）で、資格情報のファイルの代わりに使う
+// 本人が login を実行できない環境（AI エージェントのサンドボックスなど）で、資格情報のファイルの代わりに使う。
+// NAKAMABA_TOKEN は、管理画面で発行したエージェント用のトークン。NAKAMABA_AUTHORIZATION は前の形
+// （Authorization ヘッダーの値そのもの）で、登録済みの人のために当面は読む
+const TOKEN_ENV = 'NAKAMABA_TOKEN';
 const AUTHORIZATION_ENV = 'NAKAMABA_AUTHORIZATION';
 const ADMIN_URL_ENV = 'NAKAMABA_ADMIN_URL';
 
@@ -50,23 +53,31 @@ function formatBytes(bytes) {
 }
 
 /**
- * 管理画面への認証。環境変数 NAKAMABA_AUTHORIZATION があれば、その値をそのまま Authorization ヘッダーに使い、
- * 管理画面の URL は NAKAMABA_ADMIN_URL から読む。秘密を預かる仕組み（Claude Managed Agents の vault など）は、
- * 本物の値をサンドボックスに入れず、外へ送るときにヘッダーの中の値を差し替えるので、値を組み立て直さない。
- * 無ければ、login で保存したファイルを使う
+ * 管理画面への認証。環境変数 NAKAMABA_TOKEN があれば `Bearer <トークン>` を、NAKAMABA_AUTHORIZATION があれば
+ * その値をそのまま、Authorization ヘッダーに使う。管理画面の URL は NAKAMABA_ADMIN_URL から読む。
+ * どちらも無ければ、login で保存したファイルを使う
  */
 async function readCredentials() {
+  const token = process.env[TOKEN_ENV];
+  if (token) return envCredentials(TOKEN_ENV, `Bearer ${token}`);
   const authorization = process.env[AUTHORIZATION_ENV];
-  if (authorization) {
-    const adminUrl = process.env[ADMIN_URL_ENV];
-    if (!adminUrl) {
-      throw new CliError(
-        `環境変数 ${AUTHORIZATION_ENV} を使うときは、管理画面の URL を環境変数 ${ADMIN_URL_ENV} で指定してください。`,
-      );
-    }
-    return { adminUrl: adminOrigin(adminUrl), authorization, username: null, fromEnv: true };
-  }
+  if (authorization) return envCredentials(AUTHORIZATION_ENV, authorization);
   return readSavedCredentials();
+}
+
+/**
+ * 環境変数の値は、秘密を預かる仕組み（Claude Managed Agents の vault など）が渡したダミーのことがある。
+ * ダミーは、外へ送るときにヘッダーの中で本物に差し替わるので、形を確かめたり、組み立て直したりしない
+ * （前に `Bearer ` を付けるだけなら、ダミーはそのまま残る）
+ */
+function envCredentials(envName, authorization) {
+  const adminUrl = process.env[ADMIN_URL_ENV];
+  if (!adminUrl) {
+    throw new CliError(
+      `環境変数 ${envName} を使うときは、管理画面の URL を環境変数 ${ADMIN_URL_ENV} で指定してください。`,
+    );
+  }
+  return { adminUrl: adminOrigin(adminUrl), authorization, username: null, envName };
 }
 
 async function readSavedCredentials() {
@@ -84,7 +95,7 @@ async function readSavedCredentials() {
         adminUrl: value.adminUrl,
         authorization: basicAuthorization(value.username, value.password),
         username: value.username,
-        fromEnv: false,
+        envName: null,
       };
     }
   } catch {
@@ -127,7 +138,7 @@ async function api(credentials, method, path, body) {
   try {
     response = await request(credentials, method, path, body);
   } catch (error) {
-    if (error instanceof ConnectionError && credentials.fromEnv) {
+    if (error instanceof ConnectionError && credentials.envName) {
       throw new CliError(
         `${error.message}\nネットワークと、環境変数 ${ADMIN_URL_ENV} の URL を確かめてください。`,
       );
@@ -140,7 +151,12 @@ async function api(credentials, method, path, body) {
     }
     throw error;
   }
-  if (response.status === 401 && credentials.fromEnv) {
+  if (response.status === 401 && credentials.envName === TOKEN_ENV) {
+    throw new CliError(
+      `環境変数 ${TOKEN_ENV} のトークンでは、ログインできませんでした。トークンが取り消されていないか、90 日使われずに使えなくなっていないかを、本人に確かめてもらってください。`,
+    );
+  }
+  if (response.status === 401 && credentials.envName) {
     throw new CliError(
       `環境変数 ${AUTHORIZATION_ENV} の値では、ログインできませんでした。値が正しいかを、本人に確かめてもらってください。`,
     );
@@ -648,9 +664,9 @@ const USAGE = `使い方:
   node nakamaba.mjs preview [フォルダ] [--name <ページ名>] [--port <番号>]
                                              公開の前に、手元で公開後と同じ URL の形で開く。何も送らない
 
-環境変数 NAKAMABA_AUTHORIZATION があると、login で保存したファイルの代わりに、その値（「Basic …」）を
-管理画面への認証に使う（AI エージェントのサンドボックスなど、本人が login を実行できない環境向け）。
-このときは、管理画面の URL を NAKAMABA_ADMIN_URL で指定する。`;
+環境変数 NAKAMABA_TOKEN（管理画面で発行したエージェント用のトークン）があると、login で保存したファイルの
+代わりに、そのトークンを管理画面への認証に使う（AI エージェントのサンドボックスなど、本人が login を実行できない
+環境向け）。このときは、管理画面の URL を NAKAMABA_ADMIN_URL で指定する。`;
 
 const COMMANDS = { login, list, publish, preview };
 

@@ -52,6 +52,7 @@ beforeAll(async () => {
   Object.assign(process.env, {
     USERS_TABLE: config.usersTable,
     PAGES_TABLE: config.pagesTable,
+    TOKENS_TABLE: config.tokensTable,
     SITE_BUCKET: config.siteBucket,
     UPLOAD_BUCKET: config.uploadBucket,
     DISTRIBUTION_ID: config.distributionId,

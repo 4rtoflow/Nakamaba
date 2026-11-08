@@ -134,6 +134,7 @@ describe('Lambda', () => {
           PARAMETER_PREFIX: '/nakamaba',
           USERS_TABLE: Match.anyValue(),
           PAGES_TABLE: Match.anyValue(),
+          TOKENS_TABLE: Match.anyValue(),
           SITE_BUCKET: Match.anyValue(),
           UPLOAD_BUCKET: Match.anyValue(),
           DISTRIBUTION_ID: Match.anyValue(),
@@ -224,13 +225,31 @@ describe('CD', () => {
 });
 
 describe('DynamoDB', () => {
-  it('ユーザーとページを name をキーにした従量課金の表に置く', () => {
+  it('ユーザーとページは name を、トークンはハッシュをキーにした従量課金の表に置き、消さずに残す', () => {
     const tables = Object.values(template.findResources('AWS::DynamoDB::Table'));
-    expect(tables).toHaveLength(2);
+    expect(tables).toHaveLength(3);
+    const keys = tables.map((table) => table.Properties.KeySchema[0].AttributeName).sort();
+    expect(keys).toEqual(['hash', 'name', 'name']);
     for (const table of tables) {
       expect(table.Properties.BillingMode).toBe('PAY_PER_REQUEST');
-      expect(table.Properties.KeySchema).toEqual([{ AttributeName: 'name', KeyType: 'HASH' }]);
+      expect(table.UpdateReplacePolicy).toBe('Retain');
+      expect(table.DeletionPolicy).toBe('Retain');
     }
+  });
+
+  it('アプリの関数は、トークンの表を読み書きできる', () => {
+    const tokensTable = Object.entries(template.findResources('AWS::DynamoDB::Table')).find(
+      ([, table]) => table.Properties.KeySchema[0].AttributeName === 'hash',
+    )?.[0];
+    const statements = Object.values(template.findResources('AWS::IAM::Policy')).flatMap(
+      (policy) => policy.Properties.PolicyDocument.Statement,
+    );
+    const writesTokens = statements.some(
+      (statement) =>
+        [statement.Action].flat().includes('dynamodb:PutItem') &&
+        JSON.stringify(statement.Resource).includes(`"${tokensTable}"`),
+    );
+    expect(writesTokens).toBe(true);
   });
 });
 
