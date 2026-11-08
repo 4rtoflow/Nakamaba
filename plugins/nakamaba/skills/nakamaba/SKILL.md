@@ -64,3 +64,15 @@ node ${CLAUDE_SKILL_DIR}/scripts/nakamaba.mjs list
 ```bash
 node ${CLAUDE_SKILL_DIR}/scripts/nakamaba.mjs login
 ```
+
+### 本人がターミナルを使えない環境
+
+環境変数 `NAKAMABA_AUTHORIZATION` があるとき（Bobert Agent など、AI エージェントのサンドボックスで、秘密を預かる仕組みが値を渡しているとき）は、上のファイルの代わりに、その値を管理画面への認証に使う。このときは login を案内しない。
+
+- 管理画面の URL を、環境変数 `NAKAMABA_ADMIN_URL` で渡す。URL は秘密ではない。指示や会話に無ければ、本人に聞く。
+
+```bash
+NAKAMABA_ADMIN_URL=<管理画面の URL> node ${CLAUDE_SKILL_DIR}/scripts/nakamaba.mjs list
+```
+
+- `NAKAMABA_AUTHORIZATION` の値は秘密なので、表示したり、ファイルや会話に書いたりしない。その値で認証できないと言われたら、本人に値を確かめてもらう。
