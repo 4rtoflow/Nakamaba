@@ -28,6 +28,7 @@ describe('configFromEnv', () => {
   const env = {
     USERS_TABLE: 'u',
     PAGES_TABLE: 'p',
+    TOKENS_TABLE: 't',
     SITE_BUCKET: 's',
     UPLOAD_BUCKET: 'up',
     DISTRIBUTION_ID: 'd',
@@ -37,7 +38,11 @@ describe('configFromEnv', () => {
   };
 
   it('環境変数から設定を作り、本番では path style にしない', () => {
-    expect(configFromEnv(env)).toMatchObject({ usersTable: 'u', forcePathStyle: false });
+    expect(configFromEnv(env)).toMatchObject({
+      usersTable: 'u',
+      tokensTable: 't',
+      forcePathStyle: false,
+    });
     expect(configFromEnv({ ...env, S3_FORCE_PATH_STYLE: 'true' }).forcePathStyle).toBe(true);
   });
 

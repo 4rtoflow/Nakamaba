@@ -1,5 +1,5 @@
-// 環境変数（NAKAMABA_AUTHORIZATION と NAKAMABA_ADMIN_URL）で認証するときの公開スクリプトを、子プロセスで動かす。
-// 管理画面は、このテストの中の偽物（受け取った Authorization ヘッダーを記録する）
+// 環境変数（NAKAMABA_TOKEN か NAKAMABA_AUTHORIZATION と、NAKAMABA_ADMIN_URL）で認証するときの公開スクリプトを、
+// 子プロセスで動かす。管理画面は、このテストの中の偽物（受け取った Authorization ヘッダーを記録する）
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -15,6 +15,9 @@ const SCRIPT = fileURLToPath(
 // 秘密を預かる仕組み（vault など）が、外へ送るときに本物へ差し替える前の値に見立てた文字列。
 // スクリプトは、これを組み立て直さずに、そのまま Authorization ヘッダーに入れる
 const AUTHORIZATION = 'Basic placeholder-from-vault';
+// トークンも同じく、ダミーに見立てた文字列。本物のトークンの形（nkmb_…）ではないが、スクリプトは形を確かめない
+const TOKEN = 'placeholder-token-from-vault';
+const BEARER = `Bearer ${TOKEN}`;
 const PUBLIC_URL = 'https://public.example.invalid/env-page/';
 
 interface Received {
@@ -60,7 +63,7 @@ beforeAll(async () => {
       response.writeHead(204).end();
       return;
     }
-    if (!accepts || request.headers.authorization !== AUTHORIZATION) {
+    if (!accepts || ![AUTHORIZATION, BEARER].includes(request.headers.authorization ?? '')) {
       json(response, 401, { message: 'ログインが必要です。' });
       return;
     }
@@ -206,6 +209,62 @@ describe('環境変数で認証する', () => {
     expect(result.code).toBe(1);
     expect(result.stderr).toContain(`管理画面に接続できません（http://127.0.0.1:${port}）`);
     expect(result.stderr).toContain('環境変数 NAKAMABA_ADMIN_URL の URL を確かめてください。');
+    expect(result.stderr).not.toContain('login');
+  });
+});
+
+describe('エージェント用のトークンで認証する', () => {
+  const withToken = (extra: Record<string, string> = {}) => ({
+    NAKAMABA_TOKEN: TOKEN,
+    NAKAMABA_ADMIN_URL: adminUrl,
+    ...extra,
+  });
+
+  it('list: トークンの形を確かめず、前に Bearer を付けるだけで送る（保存したファイルは読まない）', async () => {
+    const result = await run(['list'], withToken());
+
+    expect(result).toEqual({ code: 0, stdout: 'alice の使用量: 1 KB / 1 GB\n', stderr: '' });
+    expect(received.map((request) => request.authorization)).toEqual([BEARER, BEARER]);
+  });
+
+  it('publish: 同じヘッダーで公開し、署名付きの送り先には送らない', async () => {
+    const dir = await makeSite({ 'index.md': '# トークンで公開' });
+
+    const result = await run(['publish', dir, '--name', 'env-page'], withToken());
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(`公開しました: ${PUBLIC_URL}`);
+    const apiRequests = received.filter((request) => request.path.startsWith('/api/'));
+    expect(apiRequests.map((request) => request.authorization)).toEqual([BEARER, BEARER, BEARER]);
+    expect(received.find((request) => request.path === '/upload')?.authorization).toBeUndefined();
+  });
+
+  it('NAKAMABA_AUTHORIZATION もあるときは、トークンを使う', async () => {
+    const result = await run(['list'], withToken({ NAKAMABA_AUTHORIZATION: AUTHORIZATION }));
+
+    expect(result.code).toBe(0);
+    expect(received.every((request) => request.authorization === BEARER)).toBe(true);
+  });
+
+  it('管理画面の URL が無ければ、何も送らずに NAKAMABA_ADMIN_URL を案内する', async () => {
+    const result = await run(['list'], { NAKAMABA_TOKEN: TOKEN });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      '環境変数 NAKAMABA_TOKEN を使うときは、管理画面の URL を環境変数 NAKAMABA_ADMIN_URL で指定してください。',
+    );
+    expect(received).toEqual([]);
+  });
+
+  it('トークンで認証できなければ、login ではなく、取り消しと期限を本人に確かめてもらうよう伝える', async () => {
+    accepts = false;
+
+    const result = await run(['list'], withToken());
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      '環境変数 NAKAMABA_TOKEN のトークンでは、ログインできませんでした。トークンが取り消されていないか、90 日使われずに使えなくなっていないかを、本人に確かめてもらってください。',
+    );
     expect(result.stderr).not.toContain('login');
   });
 });

@@ -1,4 +1,5 @@
 import {
+  type AgentToken,
   DEFAULT_LIMITS,
   type Deps,
   type NewPageNotice,
@@ -8,6 +9,7 @@ import {
   type User,
 } from '../../src/app/deps.ts';
 import { hashPassword } from '../../src/app/passwords.ts';
+import { issueToken } from '../../src/app/tokens.ts';
 
 export const TEST_UPLOAD_ID = '11111111-2222-4333-8444-555555555555';
 
@@ -15,6 +17,8 @@ export interface FakeWorld {
   deps: Deps;
   users: Map<string, User>;
   pages: Map<string, Page>;
+  /** キーはトークンのハッシュ */
+  tokens: Map<string, AgentToken>;
   siteFiles: Map<string, { body: Buffer; contentType: string }>;
   putOrder: string[];
   uploads: Map<string, Buffer>;
@@ -23,12 +27,15 @@ export interface FakeWorld {
   notices: NewPageNotice[];
   logs: Array<{ message: string; detail?: unknown }>;
   addUser(name: string, role?: User['role'], password?: string): User;
+  /** owner のトークンを発行し、本物の値を返す */
+  addToken(owner: string, label?: string): Promise<string>;
   failSiteFilePut: { key: string | null };
 }
 
 export function createFakeWorld(overrides: Partial<Deps> = {}): FakeWorld {
   const users = new Map<string, User>();
   const pages = new Map<string, Page>();
+  const tokens = new Map<string, AgentToken>();
   const siteFiles = new Map<string, { body: Buffer; contentType: string }>();
   const uploads = new Map<string, Buffer>();
   const passwords = new Map<string, string>();
@@ -72,12 +79,28 @@ export function createFakeWorld(overrides: Partial<Deps> = {}): FakeWorld {
           hasThumbnail: claim.hasThumbnail,
           createdAt: previous?.createdAt ?? claim.now,
           updatedAt: claim.now,
+          ...(claim.tokenLabel === null ? {} : { updatedWithToken: claim.tokenLabel }),
         };
         pages.set(claim.name, page);
         return { claimed: true, page, isNew: previous === undefined };
       },
       delete: async (name) => {
         pages.delete(name);
+      },
+    },
+    tokens: {
+      get: async (hash) => tokens.get(hash) ?? null,
+      list: async () => [...tokens.values()],
+      create: async (token) => {
+        if (tokens.has(token.hash)) throw new Error('同じハッシュのトークンがあります');
+        tokens.set(token.hash, token);
+      },
+      touch: async (hash, lastUsedAt) => {
+        const token = tokens.get(hash);
+        if (token) tokens.set(hash, { ...token, lastUsedAt });
+      },
+      delete: async (hash) => {
+        tokens.delete(hash);
       },
     },
     siteFiles: {
@@ -145,6 +168,7 @@ export function createFakeWorld(overrides: Partial<Deps> = {}): FakeWorld {
     deps,
     users,
     pages,
+    tokens,
     siteFiles,
     putOrder,
     uploads,
@@ -164,9 +188,18 @@ export function createFakeWorld(overrides: Partial<Deps> = {}): FakeWorld {
       passwords.set(name, password);
       return user;
     },
+    async addToken(owner, label = 'Bobert') {
+      const user = users.get(owner);
+      if (!user) throw new Error(`no user ${owner}`);
+      return (await issueToken(deps, user, label)).token;
+    },
   };
 }
 
 export function basicHeader(username: string, password = `${username}-password`): string {
   return `Basic ${Buffer.from(`${username}:${password}`, 'utf8').toString('base64')}`;
+}
+
+export function bearerHeader(token: string): string {
+  return `Bearer ${token}`;
 }

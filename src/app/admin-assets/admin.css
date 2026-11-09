@@ -271,3 +271,35 @@ button:disabled {
   color: var(--muted);
   border-top: 1px solid var(--hairline);
 }
+/* 発行したトークン。display を指定すると hidden が効かなくなるので、表示中だけに付ける */
+.issued:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 16px 20px;
+  border-radius: 16px;
+  background: var(--soft);
+}
+.issued p {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.issued-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.issued-label {
+  flex: 0 0 4em;
+  font-size: 14px;
+  font-weight: 600;
+}
+.issued-value {
+  flex: 1 1 240px;
+  min-width: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}

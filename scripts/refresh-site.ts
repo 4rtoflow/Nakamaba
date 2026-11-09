@@ -16,6 +16,7 @@ function requireEnv(key: string): string {
 const deps = createAwsDeps({
   usersTable: '',
   pagesTable: requireEnv('PAGES_TABLE'),
+  tokensTable: '',
   siteBucket: requireEnv('SITE_BUCKET'),
   uploadBucket: '',
   distributionId: requireEnv('DISTRIBUTION_ID'),

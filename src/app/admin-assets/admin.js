@@ -39,6 +39,10 @@ function showLogin() {
   $('app').hidden = true;
   $('pages').replaceChildren();
   $('users').replaceChildren();
+  $('tokens').replaceChildren();
+  // 発行したトークンの本物の値を、ログアウトした後の画面に残さない
+  $('token-issued').replaceChildren();
+  $('token-issued').hidden = true;
   $('usage').textContent = '';
   $('login-panel').hidden = false;
 }
@@ -87,6 +91,11 @@ function formatDate(iso) {
     dateStyle: 'medium',
     timeStyle: 'short',
   });
+}
+
+// トークンを最後に使った日時は 1 日に 1 回しか書かないので、日付だけを出す
+function formatDay(iso) {
+  return new Date(iso).toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo', dateStyle: 'medium' });
 }
 
 function guard(action) {
@@ -141,7 +150,12 @@ function renderPages(pages) {
           element('p', { className: 'row-title' }, link),
           element('p', {
             className: 'row-meta',
-            text: `${page.name} ・ ${page.owner} ・ ${formatDate(page.updatedAt)}`,
+            text: [
+              page.name,
+              page.owner,
+              formatDate(page.updatedAt),
+              ...(page.updatedWithToken ? [`トークン「${page.updatedWithToken}」で更新`] : []),
+            ].join(' ・ '),
           }),
         ),
         actions,
@@ -166,6 +180,109 @@ async function refreshPages() {
   renderPages(pages);
   $('usage').textContent =
     `使用量: ${formatBytes(usage.usedBytes)} / ${formatBytes(usage.maxBytes)}`;
+}
+
+function copyButton(value, label) {
+  const button = element('button', {
+    text: 'コピー',
+    attrs: { type: 'button', 'aria-label': `${label}をコピー` },
+  });
+  button.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      button.textContent = 'コピーしました';
+      setTimeout(() => {
+        button.textContent = 'コピー';
+      }, 2000);
+    } catch {
+      // クリップボードに書けないときは、値を選んだ状態にして、手でコピーできるようにする
+      const range = document.createRange();
+      range.selectNodeContents(button.previousElementSibling);
+      window.getSelection()?.removeAllRanges();
+      window.getSelection()?.addRange(range);
+    }
+  });
+  return button;
+}
+
+// 本物のトークンは、発行の応答でしか受け取れない。ページを離れると消える
+function showIssued(issued) {
+  const box = $('token-issued');
+  const values = [
+    ['名前', 'NAKAMABA_TOKEN'],
+    ['値', issued.token],
+    ['送り先', window.location.origin],
+  ];
+  box.replaceChildren(
+    element('p', {
+      text: 'トークンを発行しました。このページを離れると、もう表示できません。エージェントに秘密を渡す仕組み（Bobert の /agentsecrets の「追加」など）に、次の 3 つを登録してください。',
+    }),
+    ...values.map(([label, value]) =>
+      element(
+        'div',
+        { className: 'issued-row' },
+        element('span', { className: 'issued-label', text: label }),
+        element('code', { className: 'issued-value', text: value }),
+        copyButton(value, label),
+      ),
+    ),
+  );
+  box.hidden = false;
+}
+
+function renderTokens(tokens, me) {
+  const list = $('tokens');
+  list.replaceChildren();
+  if (tokens.length === 0) {
+    list.append(element('p', { className: 'empty', text: 'まだトークンがありません。' }));
+    return;
+  }
+  for (const token of tokens) {
+    const meta = [
+      ...(me.role === 'admin' ? [token.owner] : []),
+      `発行 ${formatDate(token.createdAt)}`,
+      token.lastUsedAt ? `最後に使った日 ${formatDay(token.lastUsedAt)}` : 'まだ使っていません',
+      ...(token.active ? [] : ['90 日使われなかったため、使えません']),
+    ];
+    list.append(
+      element(
+        'div',
+        { className: 'row', attrs: { 'data-token': token.id } },
+        element(
+          'div',
+          { className: 'row-main' },
+          element('p', { className: 'row-title', text: token.label }),
+          element('p', { className: 'row-meta', text: meta.join(' ・ ') }),
+        ),
+        element(
+          'div',
+          { className: 'row-actions' },
+          element('button', {
+            className: 'danger',
+            text: '取り消す',
+            attrs: { type: 'button', 'aria-label': `${token.label} を取り消す` },
+            onClick: guard(async () => {
+              if (
+                !window.confirm(
+                  `トークン「${token.label}」を取り消しますか？このトークンを使っているエージェントは、公開できなくなります。`,
+                )
+              ) {
+                return;
+              }
+              await api('DELETE', `/api/tokens/${encodeURIComponent(token.id)}`);
+              showStatus(`トークン「${token.label}」を取り消しました。`);
+              await refreshTokens();
+            }),
+          }),
+        ),
+      ),
+    );
+  }
+}
+
+async function refreshTokens() {
+  const { tokens } = await api('GET', '/api/tokens');
+  renderTokens(tokens, currentUser);
 }
 
 function renderUsers(users, me) {
@@ -202,13 +319,20 @@ function renderUsers(users, me) {
         text: '再発行',
         attrs: { type: 'button' },
         onClick: guard(async () => {
-          if (!window.confirm(`「${user.name}」のパスワードを再発行しますか？`)) return;
+          if (
+            !window.confirm(
+              `「${user.name}」のパスワードを再発行しますか？このユーザーのトークンも、すべて取り消します。`,
+            )
+          ) {
+            return;
+          }
           const { password } = await api(
             'PUT',
             `/api/users/${encodeURIComponent(user.name)}/password`,
           );
           showPassword(password);
           showStatus(`「${user.name}」のパスワードを再発行しました。`);
+          await refreshTokens();
         }),
       }),
     );
@@ -223,6 +347,7 @@ function renderUsers(users, me) {
             await api('DELETE', `/api/users/${encodeURIComponent(user.name)}`);
             showStatus(`「${user.name}」を削除しました。`);
             await refreshUsers(me);
+            await refreshTokens();
           }),
         }),
       );
@@ -305,6 +430,24 @@ $('user-form').addEventListener('submit', async (event) => {
   }
 });
 
+$('token-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = $('token-button');
+  button.disabled = true;
+  clearStatus();
+  try {
+    const issued = await api('PUT', '/api/tokens', { label: $('token-label').value });
+    form.reset();
+    showIssued(issued);
+    await refreshTokens();
+  } catch (error) {
+    showStatus(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
 async function enter() {
   currentUser = await api('GET', '/api/me');
   saveAuthorization(authorization);
@@ -317,6 +460,7 @@ async function enter() {
   $('users-panel').hidden = !isAdmin;
   $('app').hidden = false;
   await refreshPages();
+  await refreshTokens();
   if (isAdmin) await refreshUsers(currentUser);
 }
 

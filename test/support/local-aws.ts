@@ -18,13 +18,13 @@ export function pointAwsSdkAt(endpoint: string): void {
   delete process.env.AWS_PROFILE;
 }
 
-async function createTable(dynamodb: DynamoDBClient, name: string): Promise<void> {
+async function createTable(dynamodb: DynamoDBClient, name: string, key = 'name'): Promise<void> {
   await dynamodb.send(
     new CreateTableCommand({
       TableName: name,
       BillingMode: 'PAY_PER_REQUEST',
-      AttributeDefinitions: [{ AttributeName: 'name', AttributeType: 'S' }],
-      KeySchema: [{ AttributeName: 'name', KeyType: 'HASH' }],
+      AttributeDefinitions: [{ AttributeName: key, AttributeType: 'S' }],
+      KeySchema: [{ AttributeName: key, KeyType: 'HASH' }],
     }),
   );
 }
@@ -42,11 +42,13 @@ export async function provisionLocalAws(
 
   const usersTable = `users-${suffix}`;
   const pagesTable = `pages-${suffix}`;
+  const tokensTable = `tokens-${suffix}`;
   const siteBucket = `site-${suffix}`;
   const uploadBucket = `upload-${suffix}`;
 
   await createTable(dynamodb, usersTable);
   await createTable(dynamodb, pagesTable);
+  await createTable(dynamodb, tokensTable, 'hash');
   for (const bucket of [siteBucket, uploadBucket]) {
     await s3.send(
       new CreateBucketCommand({
@@ -100,6 +102,7 @@ export async function provisionLocalAws(
   return {
     usersTable,
     pagesTable,
+    tokensTable,
     siteBucket,
     uploadBucket,
     distributionId: distribution.Distribution?.Id ?? '',

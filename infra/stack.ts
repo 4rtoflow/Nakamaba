@@ -68,6 +68,13 @@ export class NakamabaStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     });
 
+    // エージェント用のトークン。認証のたびに 1 回の読み込みで引けるよう、トークンのハッシュをキーにする
+    const tokensTable = new dynamodb.Table(this, 'TokensTable', {
+      partitionKey: { name: 'hash', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
     const rewrite = new cloudfront.Function(this, 'RewriteFunction', {
       code: cloudfront.FunctionCode.fromFile({ filePath: join(ROOT, 'src/edge/rewrite.js') }),
       runtime: cloudfront.FunctionRuntime.JS_2_0,
@@ -110,6 +117,7 @@ export class NakamabaStack extends Stack {
       environment: {
         USERS_TABLE: usersTable.tableName,
         PAGES_TABLE: pagesTable.tableName,
+        TOKENS_TABLE: tokensTable.tableName,
         SITE_BUCKET: siteBucket.bucketName,
         UPLOAD_BUCKET: uploadBucket.bucketName,
         DISTRIBUTION_ID: distribution.distributionId,
@@ -141,6 +149,7 @@ export class NakamabaStack extends Stack {
 
     usersTable.grantReadWriteData(app);
     pagesTable.grantReadWriteData(app);
+    tokensTable.grantReadWriteData(app);
     siteBucket.grantReadWrite(app);
     siteBucket.grantDelete(app);
     uploadBucket.grantReadWrite(app);

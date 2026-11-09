@@ -84,11 +84,13 @@ export async function writeStaticPages(deps: Pick<Deps, 'pages' | 'siteFiles'>):
   await refreshTopPage(deps);
 }
 
+/** tokenLabel は、エージェント用のトークンで公開・更新するときのトークンの名前。管理画面の一覧に出す */
 export async function publishPage(
   deps: Deps,
   user: User,
   pageName: string,
   uploadId: string,
+  tokenLabel: string | null = null,
 ): Promise<{ page: Page; url: string; isNew: boolean }> {
   assertValidName(pageName);
   if (!UPLOAD_ID.test(uploadId)) {
@@ -130,6 +132,7 @@ export async function publishPage(
     title: built.title,
     hasThumbnail: built.hasThumbnail,
     now: deps.now().toISOString(),
+    tokenLabel,
   });
   if (!claim.claimed) throw nameTaken();
 

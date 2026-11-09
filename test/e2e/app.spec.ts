@@ -13,6 +13,7 @@ let adminContext: BrowserContext;
 let adminPage: Page;
 let alicePage: Page;
 let bobPage: Page;
+let alicePassword: string;
 let bobPassword: string;
 
 const savedAuthorization = (page: Page) =>
@@ -99,7 +100,7 @@ test('ログアウトすると認証情報と表示が消え、再読み込み�
 });
 
 test('Admin はユーザーを追加でき、後からパスワードを確認できる', async ({ browser }) => {
-  const alicePassword = await addUser(adminPage, 'alice');
+  alicePassword = await addUser(adminPage, 'alice');
   bobPassword = await addUser(adminPage, 'bob');
   await expect(adminPage.locator('#status')).toContainText('追加しました');
 
@@ -431,6 +432,65 @@ test('管理画面は iframe に埋め込めない', async () => {
     .catch(() => 0);
   expect(content ?? 0).toBe(0);
   await page.close();
+});
+
+test('メンバーはエージェント用のトークンを発行でき、トークンでは削除できず、取り消すと使えない', async () => {
+  const { adminOrigin } = devState();
+  await alicePage
+    .context()
+    .grantPermissions(['clipboard-read', 'clipboard-write'], { origin: adminOrigin });
+  await alicePage.reload();
+  await alicePage.locator('#token-label').fill('Bobert');
+  await alicePage.getByRole('button', { name: '発行する' }).click();
+
+  const issued = alicePage.locator('#token-issued');
+  await expect(issued).toBeVisible();
+  const values = issued.locator('.issued-value');
+  await expect(values.nth(0)).toHaveText('NAKAMABA_TOKEN');
+  const token = (await values.nth(1).textContent()) ?? '';
+  expect(token).toMatch(/^nkmb_[A-Za-z0-9_-]{43}$/);
+  await expect(values.nth(2)).toHaveText(adminOrigin);
+  await issued.getByRole('button', { name: '値をコピー' }).click();
+  await expect(issued.getByRole('button', { name: '値をコピー' })).toHaveText('コピーしました');
+  expect(await alicePage.evaluate(() => navigator.clipboard.readText())).toBe(token);
+
+  const row = alicePage.locator('#tokens .row').filter({ hasText: 'Bobert' });
+  await expect(row).toContainText('まだ使っていません');
+
+  const bearer = { Authorization: `Bearer ${token}` };
+  const me = await alicePage.request.get(`${adminOrigin}/api/me`, { headers: bearer });
+  expect(me.status()).toBe(200);
+  const deleted = await alicePage.request.delete(`${adminOrigin}/api/pages/cats`, {
+    headers: bearer,
+  });
+  expect(deleted.status()).toBe(403);
+
+  // 再読み込みすると、本物の値は二度と出ず、使った日が出る
+  await alicePage.reload();
+  await expect(alicePage.locator('#token-issued')).toBeHidden();
+  await expect(row).toContainText('最後に使った日');
+  await adminPage.reload();
+  await expect(adminPage.locator('#tokens .row').filter({ hasText: 'Bobert' })).toContainText(
+    'alice',
+  );
+
+  alicePage.once('dialog', (dialog) => dialog.accept());
+  await row.getByRole('button', { name: 'Bobert を取り消す' }).click();
+  await expect(alicePage.locator('#status')).toHaveText('トークン「Bobert」を取り消しました。');
+  await expect(row).toHaveCount(0);
+  const revoked = await alicePage.request.get(`${adminOrigin}/api/me`, { headers: bearer });
+  expect(revoked.status()).toBe(401);
+});
+
+test('ログアウトすると、発行したトークンの表示も消える', async () => {
+  await alicePage.locator('#token-label').fill('消える');
+  await alicePage.getByRole('button', { name: '発行する' }).click();
+  await expect(alicePage.locator('#token-issued')).toBeVisible();
+  await alicePage.getByRole('button', { name: 'ログアウト' }).click();
+  await expect(alicePage.locator('#token-issued')).toBeHidden();
+  await expect(alicePage.locator('#token-issued .issued-value')).toHaveCount(0);
+  await fillLogin(alicePage, 'alice', alicePassword);
+  await expect(alicePage.locator('#who')).toHaveText('alice');
 });
 
 test('再発行すると古いパスワードでは入れない', async ({ browser }) => {

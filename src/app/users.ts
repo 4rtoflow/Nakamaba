@@ -2,6 +2,7 @@ import type { Deps, Role, User } from './deps.ts';
 import { HttpError } from './http.ts';
 import { assertValidName } from './names.ts';
 import { generatePassword, hashPassword } from './passwords.ts';
+import { revokeTokensOf } from './tokens.ts';
 
 export interface PublicUser {
   name: string;
@@ -59,8 +60,12 @@ export async function getUserPassword(
   return password;
 }
 
+/**
+ * パスワードを作り直す。そのユーザーのトークンもすべて取り消す。
+ * パスワードが漏れたときに、盗んだ人が発行したトークンを残さないため
+ */
 export async function regeneratePassword(
-  deps: Pick<Deps, 'users' | 'secrets'>,
+  deps: Pick<Deps, 'users' | 'secrets' | 'tokens'>,
   name: string,
 ): Promise<string> {
   assertValidName(name);
@@ -68,11 +73,12 @@ export async function regeneratePassword(
   const password = generatePassword();
   await deps.secrets.putPassword(name, password);
   if (!(await deps.users.setPasswordHash(name, hashPassword(password)))) throw notFound();
+  await revokeTokensOf(deps, name);
   return password;
 }
 
 export async function deleteUser(
-  deps: Pick<Deps, 'users' | 'secrets'>,
+  deps: Pick<Deps, 'users' | 'secrets' | 'tokens'>,
   actor: User,
   name: string,
 ): Promise<void> {
@@ -87,4 +93,5 @@ export async function deleteUser(
   }
   await deps.users.delete(name);
   await deps.secrets.deletePassword(name);
+  await revokeTokensOf(deps, name);
 }

@@ -29,6 +29,12 @@ claude plugin install nakamaba --marketplace 4rtoflow/Nakamaba
 
 初めて公開するときは、エージェントがログイン用のコマンドを示します。パスワードを会話に残さないよう、そのコマンドは別のターミナルで実行してください。
 
-本人がターミナルを使えない環境（Bobert Agent など、AI エージェントのサンドボックス）では、ログインの代わりに、環境変数 `NAKAMABA_AUTHORIZATION` と `NAKAMABA_ADMIN_URL` を渡します。`NAKAMABA_AUTHORIZATION` は、`Basic` に続けて、「ユーザー名:パスワード」を base64 にした値です（Authorization ヘッダーの値そのもの）。`NAKAMABA_ADMIN_URL` は管理画面の URL です。値は秘密なので、サンドボックスに本物の値を入れない仕組み（Claude Managed Agents の vault など）で渡してください。
+本人がターミナルを使えない環境（Bobert Agent など、AI エージェントのサンドボックス）では、ログインの代わりに、エージェント用のトークンを使います。
+
+1. 管理画面の「エージェント用のトークン」で、名前（例: Bobert）を付けて発行します。トークンは、発行した画面で 1 回だけ表示されます。
+2. 画面に並ぶ 3 つ（名前 `NAKAMABA_TOKEN`、トークン、送り先の管理画面の URL）を、サンドボックスに本物の値を入れない仕組み（Claude Managed Agents の vault など。Bobert なら `/agentsecrets` の「追加」）に登録します。
+3. エージェントは、トークンを環境変数 `NAKAMABA_TOKEN` から、管理画面の URL を `NAKAMABA_ADMIN_URL` から読み、`Authorization: Bearer <トークン>` で公開・更新します。
+
+トークンでできるのは、自分のページの公開・更新と一覧だけです。ページの削除、ほかの人のページの上書き、ユーザーの管理はできません。トークンは管理画面で取り消せます。90 日使われなかったトークンと、パスワードを再発行したユーザーのトークンは、使えなくなります。
 
 プラグインは自動では更新されません。`claude plugin update nakamaba@nakamaba` で更新するか、`/plugin` の Marketplaces で `nakamaba` の自動更新を有効にしてください。

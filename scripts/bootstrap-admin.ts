@@ -22,6 +22,8 @@ function requireEnv(key: string): string {
 const deps = createAwsDeps({
   usersTable: requireEnv('USERS_TABLE'),
   pagesTable: requireEnv('PAGES_TABLE'),
+  // 最初の Admin にはトークンが無いので、トークンの表は使わない
+  tokensTable: '',
   siteBucket: requireEnv('SITE_BUCKET'),
   uploadBucket: '',
   distributionId: '',

@@ -289,6 +289,69 @@ describe('publish', () => {
   });
 });
 
+describe('エージェント用のトークン', () => {
+  /** login で保存したファイルを使わず、環境変数のトークンだけで動かす */
+  function runWithToken(args: string[], token: string): Promise<RunResult> {
+    const base = Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] =>
+          !entry[0].startsWith('NAKAMABA_') && entry[1] !== undefined,
+      ),
+    );
+    return new Promise((resolve) => {
+      execFile(
+        process.execPath,
+        [SCRIPT, ...args],
+        {
+          env: {
+            ...base,
+            NAKAMABA_CREDENTIALS: join(workDir, 'no-credentials'),
+            NAKAMABA_TOKEN: token,
+            NAKAMABA_ADMIN_URL: adminUrl,
+          },
+        },
+        (error, stdout, stderr) => {
+          resolve({ code: error ? Number(error.code) : 0, stdout, stderr });
+        },
+      );
+    });
+  }
+
+  async function tokenApi(method: string, path: string, body?: unknown) {
+    const response = await handleRequest(deps, {
+      method,
+      path,
+      headers: { authorization: basicHeader('alice', passwords.get('alice')) },
+      body: body === undefined ? '' : JSON.stringify(body),
+    });
+    return JSON.parse(response.body);
+  }
+
+  it('管理画面で発行したトークンだけで公開でき、ページにトークンの名前が残る。取り消すと使えない', async () => {
+    const { token, id } = await tokenApi('PUT', '/api/tokens', { label: 'Bobert' });
+    const dir = await makeSite({ 'index.md': '# トークンで公開' });
+
+    const published = await runWithToken(['publish', dir, '--name', 'skill-token'], token);
+
+    expect(published).toMatchObject({ code: 0, stderr: '' });
+    expect(published.stdout).toContain(`公開しました: ${PUBLIC_BASE_URL}/skill-token/`);
+    expect(await siteKeys('skill-token/')).toEqual(['skill-token/index.html']);
+    await expect(deps.pages.get('skill-token')).resolves.toMatchObject({
+      owner: 'alice',
+      updatedWithToken: 'Bobert',
+    });
+    const listed = (await tokenApi('GET', '/api/tokens')).tokens;
+    expect(listed.find((item: { id: string }) => item.id === id).lastUsedAt).not.toBeNull();
+
+    await tokenApi('DELETE', `/api/tokens/${id}`);
+    const revoked = await runWithToken(['list'], token);
+    expect(revoked.code).toBe(1);
+    expect(revoked.stderr).toContain(
+      '環境変数 NAKAMABA_TOKEN のトークンでは、ログインできませんでした。',
+    );
+  });
+});
+
 describe('login', () => {
   it('正しいパスワードなら、本人だけが読める権限で保存する', async () => {
     const path = join(workDir, 'login-ok', 'credentials');
